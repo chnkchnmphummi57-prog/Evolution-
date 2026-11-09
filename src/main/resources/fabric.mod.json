@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "pvpai",
+  "version": "${version}",
+  "name": "Evolution",
+  "description": "Sword PvP AI for singleplayer, LAN and your own server. Modes: ML, Strict, Smart.",
+  "authors": ["Good Guy"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.pvpai.PvpAiClient"] },
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*",
+    "yet_another_config_lib_v3": ">=3.8.0"
+  }
+}
