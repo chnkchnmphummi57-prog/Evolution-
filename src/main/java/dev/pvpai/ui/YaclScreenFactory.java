@@ -41,7 +41,7 @@ public final class YaclScreenFactory {
                 .option(choice("Strategy", "Normal: pressure with crits and taps. Safe: stay out of reach, shield up, counter their swings, then back off. Crit spam: jump-crit every attack.",
                         Strategy.class, Strategy.NORMAL, () -> cfg.strategy, v -> cfg.strategy = v, m -> m.label))
                 .option(bool("Hard-mask disabled movements", "Disabled moves can never be used, even by a model.", true, () -> cfg.strictEnforcement, v -> cfg.strictEnforcement = v))
-                .group(ListOption.<String>createBuilder()
+                .group(ListOption.<String>createBuilder(String.class)
                         .name(Text.literal("Allowlisted servers"))
                         .description(OptionDescription.of(Text.literal("Servers you own or run. Singleplayer is always allowed. Anywhere else the AI refuses to start.")))
                         .binding(new ArrayList<>(), () -> cfg.allowedServers, v -> cfg.allowedServers = new ArrayList<>(v))
