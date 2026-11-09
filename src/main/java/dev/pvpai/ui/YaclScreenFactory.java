@@ -15,6 +15,9 @@ import dev.pvpai.config.HotKey;
 import dev.pvpai.config.HudCorner;
 import dev.pvpai.config.InputMode;
 import dev.pvpai.config.JumpInput;
+import dev.pvpai.config.JumpResetMode;
+import dev.pvpai.config.Kit;
+import dev.pvpai.config.TotemMethod;
 import dev.pvpai.config.ModConfig;
 import dev.pvpai.config.Strategy;
 import dev.pvpai.core.AiMode;
@@ -40,8 +43,10 @@ public final class YaclScreenFactory {
                         AiMode.class, AiMode.STRICT, () -> cfg.mode, v -> cfg.mode = v, m -> m.label))
                 .option(choice("Strategy", "Normal: pressure with crits and taps. Safe: stay out of reach, shield up, counter their swings, then back off. Crit spam: jump-crit every attack.",
                         Strategy.class, Strategy.NORMAL, () -> cfg.strategy, v -> cfg.strategy = v, m -> m.label))
+                .option(choice("Kit", "Sword/Pot/NethPot/SMP/UHC use a sword (Pot kits throw healing pots). Axe uses an axe. Mace uses a mace and wind charges (experimental).",
+                        Kit.class, Kit.SWORD, () -> cfg.kit, v -> cfg.kit = v, m -> m.label))
                 .option(bool("Hard-mask disabled movements", "Disabled moves can never be used, even by a model.", true, () -> cfg.strictEnforcement, v -> cfg.strictEnforcement = v))
-                .group(ListOption.<String>createBuilder(String.class)
+                .group(ListOption.<String>createBuilder()
                         .name(Text.literal("Allowlisted servers"))
                         .description(OptionDescription.of(Text.literal("Servers you own or run. Singleplayer is always allowed. Anywhere else the AI refuses to start.")))
                         .binding(new ArrayList<>(), () -> cfg.allowedServers, v -> cfg.allowedServers = new ArrayList<>(v))
@@ -58,6 +63,8 @@ public final class YaclScreenFactory {
                         .option(bool("Jump", "Master switch for every jump the AI makes.", true, () -> cfg.jump, v -> cfg.jump = v))
                         .option(bool("Crit", "Jump, drop sprint, hit on the way down. Needs Jump on.", true, () -> cfg.crit, v -> cfg.crit = v))
                         .option(bool("Jump Reset", "Jump when hit to cut knockback.", true, () -> cfg.jumpReset, v -> cfg.jumpReset = v))
+                        .option(choice("Jump reset mode", "React: jump on the first tick the hit is visible (the earliest possible). React + predict: also jump just before an expected hit (opponent swing or falling crit).",
+                                JumpResetMode.class, JumpResetMode.REACT, () -> cfg.jumpResetMode, v -> cfg.jumpResetMode = v, m -> m.label))
                         .option(bool("Strafing", "Side-step while fighting.", true, () -> cfg.strafe, v -> cfg.strafe = v))
                         .option(bool("Retreat When Low", "Back off when health is low.", true, () -> cfg.retreatLow, v -> cfg.retreatLow = v))
                         .option(bool("W-Tap", "Stop pressing W for a moment after a hit.", true, () -> cfg.wTap, v -> cfg.wTap = v))
@@ -71,11 +78,13 @@ public final class YaclScreenFactory {
                 .group(OptionGroup.createBuilder()
                         .name(Text.literal("Crits"))
                         .option(slider("Crit chance per attack", "Chance that an attack becomes a jump-crit. Strict fires the first one, then every Nth.", 20, 0, 100, "%", () -> cfg.critChancePercent, v -> cfg.critChancePercent = v))
+                        .option(slider("Crit jump starts at", "Attack charge at which the jump starts. The hit still needs ~92%, and the jump takes ~7 ticks, so 50-80% is faster than waiting for 100%.", 70, 30, 100, "%", () -> cfg.critLaunchPercent, v -> cfg.critLaunchPercent = v))
                         .option(slider("Combo lock", "At this many hits in a row the crit chance switches off so the combo keeps going.", 5, 1, 15, " hits", () -> cfg.comboLock, v -> cfg.comboLock = v))
                         .build())
                 .group(OptionGroup.createBuilder()
                         .name(Text.literal("Crit-spam response"))
                         .option(bool("Enabled", "When the opponent spams crits: run back, knockback hit, then crit spam with jump reset.", true, () -> cfg.critSpamResponse, v -> cfg.critSpamResponse = v))
+                        .option(slider("Crit priority", "Smart: chance the response picks crit spam over comboing. Strict always starts with crit spam and falls back to combo if crits keep failing.", 75, 0, 100, "%", () -> cfg.critResponsePriority, v -> cfg.critResponsePriority = v))
                         .option(slider("Run-back length", "How long to back off.", 10, 3, 30, " ticks", () -> cfg.runBackTicks, v -> cfg.runBackTicks = v))
                         .option(slider("Punish window", "How long to crit every hit afterwards.", 100, 20, 400, " ticks", () -> cfg.punishTicks, v -> cfg.punishTicks = v))
                         .build())
@@ -143,12 +152,20 @@ public final class YaclScreenFactory {
                 .group(OptionGroup.createBuilder()
                         .name(Text.literal("Totem"))
                         .option(bool("Auto-totem", "Move a totem into the offhand when it is empty or health is low.", true, () -> cfg.autoTotem, v -> cfg.autoTotem = v))
+                        .option(choice("Method", "Auto: inventory click, then swap hands if that does not stick (hotbar totems only for swap hands).",
+                                TotemMethod.class, TotemMethod.AUTO, () -> cfg.totemMethod, v -> cfg.totemMethod = v, m -> m.label))
                         .option(slider("Totem below", "Swap a totem in at or below this health.", 10, 2, 19, " HP", () -> cfg.totemHealth, v -> cfg.totemHealth = v))
                         .build())
                 .group(OptionGroup.createBuilder()
                         .name(Text.literal("Eating"))
                         .option(bool("Auto-eat", "Eat a golden apple when low, only if the opponent is not close.", true, () -> cfg.autoEat, v -> cfg.autoEat = v))
                         .option(slider("Eat below", "Safe strategy eats 4 HP earlier.", 8, 2, 19, " HP", () -> cfg.eatHealth, v -> cfg.eatHealth = v))
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Kits"))
+                        .option(bool("Healing pots (Pot / NethPot)", "Throw splash Instant Health at your feet when low. Needs them in the hotbar.", true, () -> cfg.healPots, v -> cfg.healPots = v))
+                        .option(slider("Pot below", "Throw a pot at or below this health.", 10, 2, 19, " HP", () -> cfg.potHealth, v -> cfg.potHealth = v))
+                        .option(bool("Wind charge smash (Mace)", "Experimental: jump, wind charge, mace smash. Needs both in the hotbar.", true, () -> cfg.useWindCharge, v -> cfg.useWindCharge = v))
                         .build())
                 .group(OptionGroup.createBuilder()
                         .name(Text.literal("Defence"))

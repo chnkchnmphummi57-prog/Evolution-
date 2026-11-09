@@ -4,6 +4,8 @@ import dev.pvpai.config.HotKey;
 import dev.pvpai.config.HudCorner;
 import dev.pvpai.config.InputMode;
 import dev.pvpai.config.JumpInput;
+import dev.pvpai.config.JumpResetMode;
+import dev.pvpai.config.Kit;
 import dev.pvpai.config.ModConfig;
 import dev.pvpai.config.Strategy;
 import dev.pvpai.core.AiMode;
@@ -65,8 +67,8 @@ public final class PvpAiScreen extends Screen {
                 }));
                 addDrawableChild(cycle(x, y + gap, w, "Mode", AiMode.values(), () -> cfg.mode, v -> cfg.mode = v, m -> m.label));
                 addDrawableChild(cycle(x, y + gap * 2, w, "Strategy", Strategy.values(), () -> cfg.strategy, v -> cfg.strategy = v, m -> m.label));
-                addDrawableChild(toggle(x, y + gap * 3, w, "HUD", () -> cfg.hudVisible, v -> cfg.hudVisible = v));
-                addDrawableChild(toggle(x, y + gap * 4, w, "Compact HUD", () -> cfg.hudCompact, v -> cfg.hudCompact = v));
+                addDrawableChild(cycle(x, y + gap * 3, w, "Kit", Kit.values(), () -> cfg.kit, v -> cfg.kit = v, m -> m.label));
+                addDrawableChild(toggle(x, y + gap * 4, w, "HUD", () -> cfg.hudVisible, v -> cfg.hudVisible = v));
                 addDrawableChild(cycle(x, y + gap * 5, w, "HUD corner", HudCorner.values(), () -> cfg.hudCorner, v -> cfg.hudCorner = v, m -> m.label));
             }
             case MOVES -> {
@@ -77,6 +79,7 @@ public final class PvpAiScreen extends Screen {
                 addDrawableChild(toggle(x2, y + gap, w, "Retreat When Low", () -> cfg.retreatLow, v -> cfg.retreatLow = v));
                 addDrawableChild(toggle(x2, y + gap * 2, w, "W-Tap", () -> cfg.wTap, v -> cfg.wTap = v));
                 addDrawableChild(toggle(x2, y + gap * 3, w, "S-Tap", () -> cfg.sTap, v -> cfg.sTap = v));
+                addDrawableChild(cycle(x, y + gap * 3, w, "Reset mode", JumpResetMode.values(), () -> cfg.jumpResetMode, v -> cfg.jumpResetMode = v, m -> m.label));
                 addDrawableChild(toggle(x, y + gap * 4, w, "Hard-mask disabled moves", () -> cfg.strictEnforcement, v -> cfg.strictEnforcement = v));
             }
             case COMBAT -> {
@@ -90,6 +93,8 @@ public final class PvpAiScreen extends Screen {
                 addDrawableChild(new IntSlider(x2, y + gap * 3, w, "W-tap length", 1, 6, cfg.wTapTicks, " ticks", v -> cfg.wTapTicks = v));
                 addDrawableChild(new IntSlider(x, y + gap * 4, w, "S-tap length", 1, 8, cfg.sTapTicks, " ticks", v -> cfg.sTapTicks = v));
                 addDrawableChild(new IntSlider(x2, y + gap * 4, w, "S-tap chance", 0, 100, cfg.sTapChance, "%", v -> cfg.sTapChance = v));
+                addDrawableChild(new IntSlider(x, y + gap * 5, w, "Crit jump at", 30, 100, cfg.critLaunchPercent, "%", v -> cfg.critLaunchPercent = v));
+                addDrawableChild(new IntSlider(x2, y + gap * 5, w, "Crit priority", 0, 100, cfg.critResponsePriority, "%", v -> cfg.critResponsePriority = v));
             }
             case INPUT -> {
                 addDrawableChild(cycle(x, y, w, "Input", InputMode.values(), () -> cfg.inputMode, v -> cfg.inputMode = v, m -> m.label));
@@ -110,6 +115,9 @@ public final class PvpAiScreen extends Screen {
                 addDrawableChild(toggle(x2, y + gap * 2, w, "Auto-eat", () -> cfg.autoEat, v -> cfg.autoEat = v));
                 addDrawableChild(new IntSlider(x2, y + gap * 3, w, "Eat below", 2, 19, cfg.eatHealth, " HP", v -> cfg.eatHealth = v));
                 addDrawableChild(toggle(x, y + gap * 4, w, "Safe: raise shield", () -> cfg.safeBlock, v -> cfg.safeBlock = v));
+                addDrawableChild(toggle(x2, y + gap * 4, w, "Healing pots", () -> cfg.healPots, v -> cfg.healPots = v));
+                addDrawableChild(new IntSlider(x, y + gap * 5, w, "Pot below", 2, 19, cfg.potHealth, " HP", v -> cfg.potHealth = v));
+                addDrawableChild(toggle(x2, y + gap * 5, w, "Wind charge (mace)", () -> cfg.useWindCharge, v -> cfg.useWindCharge = v));
             }
         }
 
@@ -139,7 +147,7 @@ public final class PvpAiScreen extends Screen {
         g.fill(px + 2, py, px + PW - 2, py + 2, cfg.enabled ? GREEN : 0xFF6B7280);
 
         g.drawText(textRenderer, "PvP AI", px + 14, py + 12, TEXT, true);
-        String sub = (cfg.enabled ? "ON" : "OFF") + "  |  " + cfg.mode.label + "  |  " + cfg.strategy.label;
+        String sub = (cfg.enabled ? "ON" : "OFF") + "  |  " + cfg.mode.label + "  |  " + cfg.strategy.label + "  |  " + cfg.kit.label;
         g.drawText(textRenderer, sub, px + PW - 14 - textRenderer.getWidth(sub), py + 12, cfg.enabled ? GREEN : DIM, false);
 
         int tx = px + 14, ty = py + 60, noteY = py + PH - 46;
@@ -155,16 +163,13 @@ public final class PvpAiScreen extends Screen {
                 g.drawText(textRenderer, "Live stats are on the HUD.", rx, ty + 87, DIM, false);
             }
             case MOVES -> g.drawText(textRenderer, "Hard mask: disabled moves are never used.", tx, noteY, DIM, false);
-            case COMBAT -> g.drawText(textRenderer, "Strict: every Nth attack. Smart: random roll.", tx, noteY, DIM, false);
+            case COMBAT -> { }
             case INPUT -> {
                 g.drawText(textRenderer, "Packets: hits and sprint resets go as packets.", tx, ty + 90, DIM, false);
                 g.drawText(textRenderer, "Movement stays on keys. Scope gate applies.", tx, ty + 101, DIM, false);
                 g.drawText(textRenderer, "Direct jump = jump physics without the key.", tx, ty + 112, DIM, false);
             }
-            case MODERN -> {
-                g.drawText(textRenderer, "Shield break: axe hit after sustained blocking.", tx, noteY + 3, DIM, false);
-                g.drawText(textRenderer, "Strict never fails; Smart fails at the chance.", tx, noteY + 14, DIM, false);
-            }
+            case MODERN -> { }
         }
     }
 

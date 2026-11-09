@@ -14,9 +14,10 @@ public final class CameraSmoother {
 
     private static volatile boolean active;
     private static volatile float goalYaw, goalPitch;
+    private static volatile boolean fast;
     private static boolean frameSinceTick;
 
-    public static void setGoal(float yaw, float pitch) { goalYaw = yaw; goalPitch = pitch; active = true; }
+    public static void setGoal(float yaw, float pitch, boolean fastAim) { goalYaw = yaw; goalPitch = pitch; fast = fastAim; active = true; }
     public static void clear() { active = false; }
 
     /** Called from the render callback every frame. */
@@ -35,13 +36,13 @@ public final class CameraSmoother {
     private static void step(ClientPlayerEntity p, float dt) {
         ModConfig cfg = ModConfig.get();
         float s = cfg.cameraSmoothness / 100f;
-        float perTick = 0.6f - 0.5f * s;                       // fraction of the remaining error closed per tick
+        float perTick = fast ? 0.75f : 0.6f - 0.5f * s;                       // fraction of the remaining error closed per tick
         float alpha = 1f - (float) Math.pow(1f - perTick, dt);
         float yawErr = MathHelper.wrapDegrees(goalYaw - p.getYaw());
         float pitchErr = goalPitch - p.getPitch();
-        float maxStep = cfg.maxTurnDegPerTick * dt;
+        float maxStep = cfg.maxTurnDegPerTick * dt * (fast ? 3f : 1f);
         float dy = MathHelper.clamp(yawErr * alpha, -maxStep, maxStep);
-        float dp = MathHelper.clamp(pitchErr * alpha, -maxStep / 2f, maxStep / 2f);
+        float dp = MathHelper.clamp(pitchErr * alpha, fast ? -maxStep : -maxStep / 2f, fast ? maxStep : maxStep / 2f);
         if (Math.abs(dy) < 0.01f && Math.abs(dp) < 0.01f) return;
         p.changeLookDirection(dy / 0.15, dp / 0.15);           // 0.15 = vanilla degrees per mouse unit
     }

@@ -9,3 +9,7 @@ ML and Smart currently fall back to Strict. Next: metrics/Elo/tier (3), Python t
 
 v0.4.0: strategies (Normal / Safe / Crit spam), shield break, auto-totem, auto-eat, rebindable hotkeys (Input tab).
 ML mode is next: trainer + ONNX export + in-game backend.
+
+v0.5.0: crit jump starts at lower charge, crit response picks crit spam or combo, W-tap fixed (S-tap no longer starves it),
+jump reset in every phase (+ predict mode), totem upkeep with fallback + diagnostics, shield break at any charge,
+kits (Sword, Axe, Mace, Pot, NethPot, SMP, UHC).

@@ -4,6 +4,10 @@ import dev.pvpai.config.ModConfig;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.LivingEntity;
 import dev.pvpai.config.Strategy;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.PotionContentsComponent;
+import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.tag.ItemTags;
@@ -20,7 +24,7 @@ public final class Ctx {
     public int hurtTime, tHurtTime;
     public boolean onGround, sprinting, tOnGround;
     public boolean tBlocking, tSwinging, usingItem, offhandShield, offhandTotem, offhandEmpty, holdingAxe;
-    public int selectedSlot, swordSlot = -1, axeSlot = -1, foodSlot = -1, totemSlot = -1;
+    public int selectedSlot, swordSlot = -1, axeSlot = -1, foodSlot = -1, totemSlot = -1, maceSlot = -1, windSlot = -1, potSlot = -1;
     public double fallDistance;
     public float tYaw, tPitch;
 
@@ -52,6 +56,24 @@ public final class Ctx {
 
         c.tBlocking = t.isBlocking();
         c.tSwinging = t.handSwinging;
+        scan(c, p);
+        return c;
+    }
+
+
+    /** Own state only (health, inventory, offhand). Used on ticks with no opponent so totems and eating still work. */
+    public static Ctx buildSelf(ClientPlayerEntity p) {
+        Ctx c = new Ctx();
+        c.yaw = p.getYaw(); c.pitch = p.getPitch();
+        c.health = p.getHealth(); c.maxHealth = p.getMaxHealth();
+        c.tHealth = 20f; c.tMaxHealth = 20f;
+        c.dist = 99; c.reachDist = 99;
+        c.onGround = p.isOnGround(); c.sprinting = p.isSprinting(); c.hurtTime = p.hurtTime;
+        scan(c, p);
+        return c;
+    }
+
+    private static void scan(Ctx c, ClientPlayerEntity p) {
         c.usingItem = p.isUsingItem();
         ItemStack off = p.getOffHandStack();
         c.offhandShield = off.isOf(Items.SHIELD);
@@ -67,11 +89,22 @@ public final class Ctx {
             if (i < 9) {
                 if (c.swordSlot < 0 && s.isIn(ItemTags.SWORDS)) c.swordSlot = i;
                 if (c.axeSlot < 0 && s.isIn(ItemTags.AXES)) c.axeSlot = i;
+                if (c.maceSlot < 0 && s.isOf(Items.MACE)) c.maceSlot = i;
+                if (c.windSlot < 0 && s.isOf(Items.WIND_CHARGE)) c.windSlot = i;
                 if (c.foodSlot < 0 && (s.isOf(Items.GOLDEN_APPLE) || s.isOf(Items.ENCHANTED_GOLDEN_APPLE))) c.foodSlot = i;
+                if (c.potSlot < 0 && s.isOf(Items.SPLASH_POTION) && isHealing(s)) c.potSlot = i;
             }
         }
         if (p.getMainHandStack().isIn(ItemTags.SWORDS)) c.swordSlot = c.selectedSlot;
-        return c;
+    }
+
+    private static boolean isHealing(ItemStack s) {
+        PotionContentsComponent pc = s.get(DataComponentTypes.POTION_CONTENTS);
+        if (pc == null) return false;
+        for (StatusEffectInstance e : pc.getEffects()) {
+            if (e.getEffectType().equals(StatusEffects.INSTANT_HEALTH)) return true;
+        }
+        return false;
     }
 
     /** ML observation vector (single frame). History stacking happens in the bridge. */

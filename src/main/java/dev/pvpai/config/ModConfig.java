@@ -16,6 +16,7 @@ public final class ModConfig {
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pvpai.json");
     private static ModConfig instance;
 
+    public int configVersion = 0;            // used to migrate old saved values
     public AiMode mode = AiMode.STRICT;
     public boolean enabled = false;          // always starts OFF each launch
 
@@ -27,7 +28,17 @@ public final class ModConfig {
     public Strategy strategy = Strategy.NORMAL;
     public HotKey menuKey = HotKey.LEFT_BRACKET, toggleKey = HotKey.RIGHT_BRACKET, hudKey = HotKey.BACKSLASH;
 
+    // Kit and crit timing
+    public Kit kit = Kit.SWORD;
+    public int critLaunchPercent = 70;       // start the jump at this attack charge; the hit still needs ~92% (the jump takes ~7 ticks)
+    public int critResponsePriority = 75;    // Smart: % chance the crit-spam response picks crit spam over comboing. Strict: always crit first.
+    public JumpResetMode jumpResetMode = JumpResetMode.REACT;
+
     // Modern PvP
+    public TotemMethod totemMethod = TotemMethod.AUTO;
+    public boolean healPots = true;          // Pot / NethPot kits: splash instant health at your feet when low
+    public int potHealth = 10;
+    public boolean useWindCharge = true;     // Mace kit: wind charge boost before the smash attack
     public boolean shieldBreak = true;       // axe the opponent's shield after they block for a while
     public int shieldDelayMin = 20, shieldDelayMax = 100;   // ticks of sustained blocking before the attempt (Strict: min, Smart: random)
     public int shieldFailChance = 20;        // Smart only. Strict never fails.
@@ -49,8 +60,8 @@ public final class ModConfig {
     public int punishTicks = 100;
     public int wTapTicks = 2;                // W-tap: release forward (this also stops sprint) for this many ticks after a hit
     public int sTapTicks = 3;                // S-tap: press back for this many ticks after a hit
-    public int sTapChance = 100;             // % of hits followed by an S-tap (when in range)
-    public double sTapMaxDist = 3.0;         // only S-tap when the opponent is within this distance
+    public int sTapChance = 30;              // % of hits followed by an S-tap (when in range)
+    public double sTapMaxDist = 2.5;         // only S-tap when the opponent is within this distance
 
     // Input and camera
     public InputMode inputMode = InputMode.INPUT;
@@ -76,6 +87,11 @@ public final class ModConfig {
             if (Files.exists(FILE)) instance = GSON.fromJson(Files.readString(FILE), ModConfig.class);
         } catch (Exception ignored) { }
         if (instance == null) instance = new ModConfig();
+        if (instance.configVersion < 5) {        // v0.5: the old S-tap defaults (100%, 3 blocks) starved the W-tap
+            instance.sTapChance = 30;
+            instance.sTapMaxDist = 2.5;
+            instance.configVersion = 5;
+        }
         instance.enabled = false;
     }
 

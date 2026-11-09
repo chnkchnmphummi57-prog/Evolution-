@@ -51,6 +51,7 @@ public final class HudOverlay {
         // Header: status dot, title, mode pill
         g.fill(ix, cy + 3, ix + 6, cy + 9, accent);
         g.drawText(tr, "PvP AI", ix + 11, cy + 1, TEXT, true);
+        g.drawText(tr, cfg.kit.label, ix + 11 + tr.getWidth("PvP AI") + 5, cy + 1, DIM, false);
         String modeLabel = (cfg.mode.label + " " + cfg.strategy.label).toUpperCase();
         int modeCol = switch (cfg.mode) { case ML -> ML_COL; case STRICT -> STRICT_COL; case SMART -> SMART_COL; };
         int pw = tr.getWidth(modeLabel) + 10;

@@ -8,9 +8,13 @@ import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
@@ -28,6 +32,21 @@ public final class ActionApplier {
         if (!cfg.strictEnforcement) return;
         if (!cfg.jump) a.jump = false;
         if (!cfg.strafe) { a.left = false; a.right = false; }
+    }
+
+    /** Hotbar selection, totem swaps. Also used on ticks with no opponent. */
+    public static void inventory(MinecraftClient mc, ClientPlayerEntity p, Action a) {
+        if (a.selectSlot >= 0 && a.selectSlot < 9 && p.getInventory().getSelectedSlot() != a.selectSlot) {
+            p.getInventory().setSelectedSlot(a.selectSlot);
+        }
+        if (a.swapTotemFrom >= 0 && mc.interactionManager != null) {
+            int slotId = a.swapTotemFrom < 9 ? 36 + a.swapTotemFrom : a.swapTotemFrom;   // player screen handler numbering
+            mc.interactionManager.clickSlot(p.playerScreenHandler.syncId, slotId, 40, SlotActionType.SWAP, p);   // 40 = offhand
+        }
+        if (a.swapHands) {                                  // same packet the swap-hands key sends: selected slot <-> offhand
+            ClientPlayNetworkHandler nh = mc.getNetworkHandler();
+            if (nh != null) nh.sendPacket(new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.SWAP_ITEM_WITH_OFFHAND, BlockPos.ORIGIN, Direction.DOWN));
+        }
     }
 
     public static void apply(MinecraftClient mc, Action a, Entity target, ModConfig cfg) {
@@ -56,26 +75,20 @@ public final class ActionApplier {
 
         o.useKey.setPressed(a.use);   // shield block / eating
 
-        if (a.selectSlot >= 0 && a.selectSlot < 9 && p.getInventory().getSelectedSlot() != a.selectSlot) {
-            p.getInventory().setSelectedSlot(a.selectSlot);
-        }
-        if (a.swapTotemFrom >= 0 && mc.interactionManager != null) {
-            int slotId = a.swapTotemFrom < 9 ? 36 + a.swapTotemFrom : a.swapTotemFrom;   // player screen handler numbering
-            mc.interactionManager.clickSlot(p.playerScreenHandler.syncId, slotId, 40, SlotActionType.SWAP, p);   // 40 = offhand
-        }
+        inventory(mc, p, a);
 
-        if (a.aim) CameraSmoother.setGoal(a.goalYaw, a.goalPitch);
+        if (a.aim) CameraSmoother.setGoal(a.goalYaw, a.goalPitch, a.fastAim);
         if (a.attack) attack(mc, p, target, cfg);
+    }
+
+    private static boolean canSprint(ClientPlayerEntity p) {
+        return (p.getHungerManager().getFoodLevel() > 6 || p.getAbilities().allowFlying) && !p.isUsingItem();
     }
 
     /**
      * Minecraft has no standalone "jump packet": the server infers a jump from the movement packets that follow.
      * So the direct jump applies vanilla jump physics here, and the normal movement packets report it.
      */
-    private static boolean canSprint(ClientPlayerEntity p) {
-        return (p.getHungerManager().getFoodLevel() > 6 || p.getAbilities().allowFlying) && !p.isUsingItem();
-    }
-
     private static void directJump(ClientPlayerEntity p) {
         if (!p.isOnGround()) return;
         Vec3d v = p.getVelocity();
@@ -92,6 +105,7 @@ public final class ActionApplier {
         if (cfg.inputMode == InputMode.PACKET) {
             ClientPlayNetworkHandler nh = mc.getNetworkHandler();
             if (nh == null) return;
+            nh.sendPacket(new UpdateSelectedSlotC2SPacket(p.getInventory().getSelectedSlot()));   // server must know the held item (axe swaps)
             nh.sendPacket(PlayerInteractEntityC2SPacket.attack(target, p.isSneaking()));
             p.swingHand(Hand.MAIN_HAND);        // client animation (also sends the swing packet)
             lastAttackAge = p.age;
