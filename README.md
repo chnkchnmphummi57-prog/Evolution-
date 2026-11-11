@@ -1,4 +1,4 @@
-# Evolution (Fabric 1.21.11) - sword PvP AI
+# Evolution (Fabric 1.21.11) - sword PvP AI (Alpha/Beta)
 
 Scope: singleplayer, LAN host, or servers YOU own (add them to the allowlist). Out-of-scope = AI refuses to run.
 
@@ -23,3 +23,5 @@ v0.6.0 (input + hit registration): Mouse & keyboard mode now sends real key/clic
 calls the game's own input handlers make). The attack is a real left click, only sent when vanilla's crosshair pick AND the rotation the
 server last received both point at the hitbox. Retreat turns around and runs for N seconds (default 5), then turns back and fights.
 Uppercut = jump + hit on the same tick, S-tap 5 ticks later.
+
+Notes.. The other 3 version that was not mention was an old model of the project so the later 3 version was the same project but rename + recode and improve version and the reason why version 0.4.0 was not published is because it is very unstable when first release so i take it down make a 0.5.0 but there are many so i fixed it in 0.6.0 which is the biggest update so far but still there are some bug and unusable feature in there because agian this is a alpha/beta version of the mod
