@@ -1,12 +1,16 @@
 package dev.pvpai;
 
 import dev.pvpai.config.ModConfig;
+import dev.pvpai.act.ActionApplier;
 import dev.pvpai.core.AiController;
 import dev.pvpai.core.Hotkeys;
 import dev.pvpai.core.ScopeGate;
+import dev.pvpai.ml.MlBackend;
+import dev.pvpai.ml.Recorder;
 import dev.pvpai.ui.HudOverlay;
 import dev.pvpai.ui.PvpAiScreen;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.text.Text;
@@ -17,6 +21,7 @@ public final class PvpAiClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ModConfig.load();
+        MlBackend.INSTANCE.load();
 
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             ModConfig cfg = ModConfig.get();
@@ -42,6 +47,10 @@ public final class PvpAiClient implements ClientModInitializer {
             }
             if (mc.player != null && mc.world != null) AiController.INSTANCE.tick(mc);
         });
+
+        // After the player tick: release the click and record the rotation the movement packet just carried.
+        ClientTickEvents.END_CLIENT_TICK.register(ActionApplier::endTick);
+        ClientLifecycleEvents.CLIENT_STOPPING.register(c -> Recorder.INSTANCE.close());
 
         HudRenderCallback.EVENT.register(HudOverlay::render);
     }

@@ -1,6 +1,7 @@
 package dev.pvpai.ui;
 
 import dev.isxander.yacl3.api.ConfigCategory;
+import dev.isxander.yacl3.api.LabelOption;
 import dev.isxander.yacl3.api.ListOption;
 import dev.isxander.yacl3.api.Option;
 import dev.isxander.yacl3.api.OptionDescription;
@@ -19,6 +20,7 @@ import dev.pvpai.config.JumpResetMode;
 import dev.pvpai.config.Kit;
 import dev.pvpai.config.TotemMethod;
 import dev.pvpai.config.ModConfig;
+import dev.pvpai.config.StrafeStyle;
 import dev.pvpai.config.Strategy;
 import dev.pvpai.core.AiMode;
 import net.minecraft.client.gui.screen.Screen;
@@ -66,7 +68,9 @@ public final class YaclScreenFactory {
                         .option(choice("Jump reset mode", "React: jump on the first tick the hit is visible (the earliest possible). React + predict: also jump just before an expected hit (opponent swing or falling crit).",
                                 JumpResetMode.class, JumpResetMode.REACT, () -> cfg.jumpResetMode, v -> cfg.jumpResetMode = v, m -> m.label))
                         .option(bool("Strafing", "Side-step while fighting.", true, () -> cfg.strafe, v -> cfg.strafe = v))
-                        .option(bool("Retreat When Low", "Back off when health is low.", true, () -> cfg.retreatLow, v -> cfg.retreatLow = v))
+                        .option(bool("Retreat When Low", "Turn around and run when health is low, then turn back and fight after the time below (many servers have no healing).", true, () -> cfg.retreatLow, v -> cfg.retreatLow = v))
+                        .option(slider("Retreat lasts", "How long the run lasts before the bot turns back and fights.", 5, 1, 30, " s", () -> cfg.retreatSeconds, v -> cfg.retreatSeconds = v))
+                        .option(slider("Retreat cooldown", "No new retreat for this long after turning back.", 8, 0, 60, " s", () -> cfg.retreatCooldownSeconds, v -> cfg.retreatCooldownSeconds = v))
                         .option(bool("W-Tap", "Stop pressing W for a moment after a hit.", true, () -> cfg.wTap, v -> cfg.wTap = v))
                         .option(bool("S-Tap", "Press S for a moment after a hit.", true, () -> cfg.sTap, v -> cfg.sTap = v))
                         .build())
@@ -173,6 +177,88 @@ public final class YaclScreenFactory {
                         .build())
                 .build();
 
+        ConfigCategory tech = ConfigCategory.createBuilder()
+                .name(Text.literal("Techniques"))
+                .tooltip(Text.literal("Sprint resets, spacing, jump variants, mind games"))
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Sprint resets (after a hit)"))
+                        .description(OptionDescription.of(Text.literal("W-tap and S-tap are in Movements and Taps. Which tap follows a hit: S by its chance, then these, then W.")))
+                        .option(bool("Shift-tap", "Tap sneak after a hit: drops sprint while forward stays held.", true, () -> cfg.shiftTap, v -> cfg.shiftTap = v))
+                        .option(slider("Shift-tap length", "Ticks of sneak.", 1, 1, 4, " ticks", () -> cfg.shiftTapTicks, v -> cfg.shiftTapTicks = v))
+                        .option(slider("Shift-tap chance", "Share of hits followed by a shift-tap.", 20, 0, 100, "%", () -> cfg.shiftTapChance, v -> cfg.shiftTapChance = v))
+                        .option(bool("Block-hit", "Raise the offhand shield for a split second after a hit. Needs a shield.", false, () -> cfg.blockHit, v -> cfg.blockHit = v))
+                        .option(slider("Block-hit length", "Ticks the shield stays up.", 2, 1, 4, " ticks", () -> cfg.blockHitTicks, v -> cfg.blockHitTicks = v))
+                        .option(slider("Block-hit chance", "Share of hits followed by a block-hit.", 20, 0, 100, "%", () -> cfg.blockHitChance, v -> cfg.blockHitChance = v))
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Spacing and hit manipulation"))
+                        .option(choice("Strafe style", "Alternate: fixed period. Circle: long orbit runs. Jitter: rapid A/D taps. Mixed: switches every 4.5 seconds.",
+                                StrafeStyle.class, StrafeStyle.ALTERNATE, () -> cfg.strafeStyle, v -> cfg.strafeStyle = v, m -> m.label))
+                        .option(slider("Circle run", "Ticks per direction when circle strafing.", 30, 10, 80, " ticks", () -> cfg.circleTicks, v -> cfg.circleTicks = v))
+                        .option(slider("Jitter period", "Ticks per direction when jittering.", 2, 1, 6, " ticks", () -> cfg.jitterTicks, v -> cfg.jitterTicks = v))
+                        .option(bool("Corner hit", "Near max reach, aim at the hitbox edge closest to you for a fractional reach gain.", true, () -> cfg.cornerHit, v -> cfg.cornerHit = v))
+                        .option(bool("Delayed hit", "If the opponent is too close, step back and hit at max reach instead.", false, () -> cfg.delayedHit, v -> cfg.delayedHit = v))
+                        .option(bool("Wall-pin", "Opponent against a wall: stay on them, no taps, no strafing.", true, () -> cfg.wallPin, v -> cfg.wallPin = v))
+                        .option(bool("Turn-back", "At very close range: whip 180, run a block, snap back and hit.", false, () -> cfg.turnBack, v -> cfg.turnBack = v))
+                        .option(slider("Turn-back chance", "Chance each time the moment comes up.", 15, 0, 100, "%", () -> cfg.turnBackChance, v -> cfg.turnBackChance = v))
+                        .option(bool("Sweep disruption", "With other players near the opponent, hit without sprinting so the sweep splash lands.", true, () -> cfg.sweepDisrupt, v -> cfg.sweepDisrupt = v))
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Physics and jumps"))
+                        .option(bool("Hit-select", "After taking a hit, counter immediately (aggressive for 6 ticks).", true, () -> cfg.hitSelect, v -> cfg.hitSelect = v))
+                        .option(bool("P-crit", "Hit the opponent the moment they jump, before their crit starts.", true, () -> cfg.pCrit, v -> cfg.pCrit = v))
+                        .option(bool("Auto crit timing", "Start the jump exactly early enough that the falling hit is charged (fastest double crits). Overrides the launch %.", false, () -> cfg.critAutoLaunch, v -> cfg.critAutoLaunch = v))
+                        .option(bool("Sprint-cut", "Jump and hit at the turn from rising to falling, with sprint intact.", true, () -> cfg.sprintCut, v -> cfg.sprintCut = v))
+                        .option(slider("Sprint-cut chance", "Share of jump attacks that use it.", 15, 0, 100, "%", () -> cfg.sprintCutChance, v -> cfg.sprintCutChance = v))
+                        .option(bool("Uppercut", "Jump and hit on the same tick (launches them upward), then S-tap a few ticks later.", true, () -> cfg.uppercut, v -> cfg.uppercut = v))
+                        .option(slider("Uppercut S-tap delay", "Ticks between the uppercut and the S-tap.", 5, 1, 20, " ticks", () -> cfg.uppercutSTapDelay, v -> cfg.uppercutSTapDelay = v))
+                        .option(slider("Uppercut chance", "Share of hits that become an uppercut.", 10, 0, 100, "%", () -> cfg.uppercutChance, v -> cfg.uppercutChance = v))
+                        .option(bool("Delayed crit", "Crit just before touching the ground.", false, () -> cfg.delayedCrit, v -> cfg.delayedCrit = v))
+                        .option(slider("Delayed crit chance", "Share of jump attacks that use it.", 25, 0, 100, "%", () -> cfg.delayedCritChance, v -> cfg.delayedCritChance = v))
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Mind games"))
+                        .option(bool("Crosshair shake", "Flick the camera away and back after a hit.", false, () -> cfg.crosshairShake, v -> cfg.crosshairShake = v))
+                        .build())
+                .build();
+
+        ConfigCategory hitreg = ConfigCategory.createBuilder()
+                .name(Text.literal("Hit registration"))
+                .tooltip(Text.literal("Stops ghost hits (effect and sound, no damage)"))
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Ghost-hit guards"))
+                        .description(OptionDescription.of(Text.literal("A ghost hit is a swing the server ignores. These gates only swing when it can count.")))
+                        .option(bool("Aim gate", "Swing only when the crosshair ray really passes through the opponent's hitbox.", true, () -> cfg.requireCrosshair, v -> cfg.requireCrosshair = v))
+                        .option(bool("Hurt guard", "Do not swing while the opponent is in hurt-immunity frames (damage is ignored).", true, () -> cfg.hurtGuard, v -> cfg.hurtGuard = v))
+                        .option(bool("Shield guard", "Do not swing a sword into a raised shield. The axe handles shields.", true, () -> cfg.blockGuard, v -> cfg.blockGuard = v))
+                        .option(Option.<Double>createBuilder()
+                                .name(Text.literal("Reach margin"))
+                                .description(OptionDescription.of(Text.literal("Swing this far inside max reach. The HUD shows the margin including the automatic extra after ghost hits.")))
+                                .binding(0.15, () -> cfg.reachMargin, v -> cfg.reachMargin = v)
+                                .controller(o -> DoubleSliderControllerBuilder.create(o).range(0.0, 0.6).step(0.01).formatValue(v -> Text.literal(String.format("%.2f blocks", v))))
+                                .build())
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Attribute swap"))
+                        .description(OptionDescription.of(Text.literal("Axe and Mace kits: charge with the sword, swap to the heavy weapon on the hit tick so you do not wait for its slow charge. Turns itself off if hits stop doing damage.")))
+                        .option(bool("Enabled", "Needs a sword and the kit's weapon in the hotbar.", true, () -> cfg.attributeSwap, v -> cfg.attributeSwap = v))
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Text.literal("Cobweb"))
+                        .option(bool("Auto web", "Place a cobweb on the opponent's feet while your weapon recharges. Needs cobwebs in the hotbar.", true, () -> cfg.autoWeb, v -> cfg.autoWeb = v))
+                        .option(bool("Crit spam in web", "Opponent stuck in a web: jump-crit every hit and keep out of the web.", true, () -> cfg.webSpamCrit, v -> cfg.webSpamCrit = v))
+                        .build())
+                .build();
+
+        ConfigCategory ml = ConfigCategory.createBuilder()
+                .name(Text.literal("ML"))
+                .tooltip(Text.literal("Record demos, train, load a model"))
+                .option(LabelOption.create(Text.literal("1. Turn recording on and let Strict or Smart fight for a while.")))
+                .option(LabelOption.create(Text.literal("2. Train with ml/train.py, copy model.json to config/evolution/.")))
+                .option(LabelOption.create(Text.literal("3. Press Reload model in the quick panel (ML tab), then set Mode to ML.")))
+                .option(bool("Record demos", "Write observation/action rows to config/evolution/demos while a RULE mode fights.", false, () -> cfg.recordDemos, v -> cfg.recordDemos = v))
+                .build();
+
         ConfigCategory hud = ConfigCategory.createBuilder()
                 .name(Text.literal("HUD"))
                 .tooltip(Text.literal("The live overlay"))
@@ -189,6 +275,9 @@ public final class YaclScreenFactory {
                 .category(taps)
                 .category(input)
                 .category(modern)
+                .category(tech)
+                .category(hitreg)
+                .category(ml)
                 .category(hud)
                 .save(ModConfig::save)
                 .build()

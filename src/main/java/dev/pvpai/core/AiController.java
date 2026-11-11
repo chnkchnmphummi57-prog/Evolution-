@@ -3,7 +3,10 @@ package dev.pvpai.core;
 import dev.pvpai.act.Action;
 import dev.pvpai.act.ActionApplier;
 import dev.pvpai.act.CameraSmoother;
+import dev.pvpai.config.InputMode;
 import dev.pvpai.config.ModConfig;
+import dev.pvpai.ml.MlBackend;
+import dev.pvpai.ml.Recorder;
 import dev.pvpai.observe.Ctx;
 import dev.pvpai.observe.FightTracker;
 import dev.pvpai.rules.MaceController;
@@ -34,8 +37,8 @@ public final class AiController {
     public void tick(MinecraftClient mc) {
         CameraSmoother.tickFallback(mc);
         ModConfig cfg = ModConfig.get();
-        if (!cfg.enabled) { release(); status = "off"; lastCtx = null; return; }
-        if (!ScopeGate.allowed(mc)) { release(); cfg.enabled = false; status = "blocked: out of scope"; return; }
+        if (!cfg.enabled) { release(); Recorder.INSTANCE.close(); status = "off"; lastCtx = null; return; }
+        if (!ScopeGate.allowed(mc)) { release(); Recorder.INSTANCE.close(); cfg.enabled = false; status = "blocked: out of scope"; return; }
         if (mc.currentScreen != null) { release(); status = "paused (screen open)"; return; }
 
         LivingEntity target = findTarget(mc, cfg.targetRange);
@@ -47,22 +50,44 @@ public final class AiController {
         if (!target.getUuid().equals(lastTarget)) { lastTarget = target.getUuid(); resetFight(); }
 
         Ctx ctx = Ctx.build(mc.player, target);
-        if (cfg.inputMode == dev.pvpai.config.InputMode.PACKET) ctx.cooldown = Math.min(ctx.cooldown, ActionApplier.packetCooldown(mc.player));
+        if (cfg.inputMode == InputMode.PACKET) ctx.cooldown = Math.min(ctx.cooldown, ActionApplier.packetCooldown(mc.player));
         tracker.update(ctx);
 
-        // ML mode lands in the next update; until then it runs the Strict rules so it is safe to test.
         boolean useSmart = cfg.mode == AiMode.SMART;
         StrictController ctl = useSmart ? smart : strict;
         Utility util = useSmart ? utilSmart : utilStrict;
-        Action a = ctl.decide(ctx, tracker, cfg);
-        util.apply(a, ctx, cfg, ctl.busy(), ctx.reachDist <= cfg.reach);
+        MlBackend ml = MlBackend.INSTANCE;
+        boolean mlActive = cfg.mode == AiMode.ML && ml.ready();
+
+        Action a;
+        if (mlActive) {
+            a = ml.decide(ctx, cfg);
+            gateAttack(a, ctx, cfg);
+        } else {
+            a = ctl.decide(ctx, tracker, cfg);     // ML without a model runs the Strict rules
+        }
+        util.apply(a, ctx, cfg, mlActive ? false : ctl.busy(), ctx.reachDist <= cfg.reach - cfg.reachMargin - tracker.reachPenalty);
         boolean maceActive = mace.apply(a, ctx, cfg);
         ActionApplier.mask(a, cfg);
+        // Last line of defence against ghost hits: a real click on anything but the target is a miss (and a miss resets the cooldown).
+        if (a.attack && cfg.inputMode == InputMode.INPUT && !ctx.crosshairOnTarget) a.attack = false;
         ActionApplier.apply(mc, a, target, cfg);
+        if (a.attack) tracker.onAttack();
+        if (!mlActive) Recorder.INSTANCE.record(ctx, cfg, a);   // only rule-mode fights make training data
         holdingKeys = true;
         lastCtx = ctx; lastAction = a;
-        status = ctl.phase + " | combo " + tracker.combo + " | crits " + ctl.critsFired
+
+        if (mlActive) status = "ML | combo " + tracker.combo + (maceActive ? " | " + mace.state : "");
+        else status = ctl.phase + " | combo " + tracker.combo + " | crits " + ctl.critsFired
                 + (maceActive ? " | " + mace.state : "") + (cfg.mode == AiMode.ML ? " | ML>strict" : "");
+    }
+
+    /** Same hit-registration gates the rule modes use, so a model cannot send ghost hits either. */
+    private void gateAttack(Action a, Ctx c, ModConfig cfg) {
+        boolean inReach = c.reachDist <= cfg.reach - cfg.reachMargin - tracker.reachPenalty;
+        boolean clear = (!cfg.requireCrosshair || c.crosshairOnTarget) && (!cfg.hurtGuard || c.tHurtTime <= 1) && !(cfg.blockGuard && c.tBlocking);
+        if (a.attack && !(inReach && clear && c.cooldown >= 0.85f)) a.attack = false;
+        if (inReach && c.cooldown >= 0.8f && !c.crosshairOnTarget) a.fastAim = true;
     }
 
     /** Inventory-only upkeep for ticks without an opponent. Never touches movement keys. */
@@ -72,12 +97,14 @@ public final class AiController {
         Utility util = cfg.mode == AiMode.SMART ? utilSmart : utilStrict;
         util.apply(a, self, cfg, false, false);
         ActionApplier.inventory(mc, mc.player, a);
-        if (a.use) { mc.options.useKey.setPressed(true); holdingUse = true; }
-        else if (holdingUse) { KeyBinding.updatePressedStates(); holdingUse = false; }
+        if (a.use) { ActionApplier.setUse(mc, true); holdingUse = true; }
+        else if (holdingUse) { ActionApplier.setUse(mc, false); holdingUse = false; }
     }
 
     public String critState() {
-        return (ModConfig.get().mode == AiMode.SMART ? smart : strict).critState;
+        ModConfig cfg = ModConfig.get();
+        if (cfg.mode == AiMode.ML) return "ML: " + MlBackend.INSTANCE.status;
+        return (cfg.mode == AiMode.SMART ? smart : strict).critState;
     }
 
     public String utilState() {
@@ -99,7 +126,7 @@ public final class AiController {
 
     private void release() {
         if (holdingKeys || holdingUse) {
-            KeyBinding.updatePressedStates();
+            ActionApplier.resetKeys();
             if (holdingKeys) resetFight();
             holdingKeys = false; holdingUse = false;
         }

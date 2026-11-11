@@ -5,16 +5,25 @@ import java.util.ArrayDeque;
 /** Watches hurt-time and ground transitions to track combo length and detect opponent crit spam. */
 public final class FightTracker {
     public int combo;
-    public boolean oppSwingEdge, tookHitNow;   // this tick: opponent started a swing / we were hit
+    public boolean oppSwingEdge, tookHitNow, oppJumpEdge;
+    // Hit-registration watchdog: an attack with no hurt animation on the opponent within 5 ticks counts as a ghost hit.
+    public int attempts, landed, ghosts;
+    public double reachPenalty;                // extra reach margin, grows after ghost hits and shrinks after landed hits
+    private final ArrayDeque<Integer> pendingAttacks = new ArrayDeque<>();
+    public int oppAirTicks;                    // ticks the opponent has been off the ground (0 = grounded)   // this tick: opponent started a swing / we were hit
     private int tick, lastHitTick = -999, prevHurt, prevTHurt;
     private boolean prevTGround = true, prevTSwing, primed;
     private final ArrayDeque<Integer> critsTaken = new ArrayDeque<>();
     private final ArrayDeque<Integer> oppJumps = new ArrayDeque<>();
 
     public void reset() {
-        combo = 0; lastHitTick = -999; primed = false; oppSwingEdge = false; tookHitNow = false;
-        critsTaken.clear(); oppJumps.clear();
+        combo = 0; lastHitTick = -999; primed = false; oppSwingEdge = false; tookHitNow = false; oppJumpEdge = false; oppAirTicks = 0;
+        critsTaken.clear(); oppJumps.clear(); pendingAttacks.clear();
+        attempts = 0; landed = 0; ghosts = 0; reachPenalty = 0;
     }
+
+    /** Call once for every attack the AI sends. */
+    public void onAttack() { attempts++; pendingAttacks.add(tick); }
 
     public void resetSpam() { critsTaken.clear(); oppJumps.clear(); }
 
@@ -23,8 +32,18 @@ public final class FightTracker {
         if (!primed) { prevHurt = c.hurtTime; prevTHurt = c.tHurtTime; prevTGround = c.tOnGround; primed = true; }
 
         oppSwingEdge = c.tSwinging && !prevTSwing;
+        oppJumpEdge = prevTGround && !c.tOnGround && c.dist < 5;
+        oppAirTicks = c.tOnGround ? 0 : oppAirTicks + 1;
         tookHitNow = c.hurtTime > prevHurt;
-        if (c.tHurtTime > prevTHurt) { combo++; lastHitTick = tick; }       // our hit landed
+        if (c.tHurtTime > prevTHurt) {                                       // our hit landed
+            combo++; lastHitTick = tick; landed++;
+            pendingAttacks.clear();
+            reachPenalty = Math.max(0, reachPenalty - 0.03);
+        }
+        while (!pendingAttacks.isEmpty() && tick - pendingAttacks.peekFirst() > 5) {   // no damage animation: ghost hit
+            pendingAttacks.pollFirst(); ghosts++;
+            reachPenalty = Math.min(0.6, reachPenalty + 0.08);
+        }
         if (tick - lastHitTick > 25) combo = 0;                              // combo timed out
         if (c.hurtTime > prevHurt) {                                         // we got hit
             combo = 0;

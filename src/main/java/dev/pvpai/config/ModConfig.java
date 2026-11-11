@@ -34,6 +34,43 @@ public final class ModConfig {
     public int critResponsePriority = 75;    // Smart: % chance the crit-spam response picks crit spam over comboing. Strict: always crit first.
     public JumpResetMode jumpResetMode = JumpResetMode.REACT;
 
+    // Sword techniques
+    public boolean shiftTap = true;   public int shiftTapTicks = 1, shiftTapChance = 20;     // crouch reset, forward stays held
+    public boolean blockHit = false;  public int blockHitTicks = 2, blockHitChance = 20;     // shield reset, needs an offhand shield
+    public boolean cornerHit = true;                                                         // aim at the hitbox edge near max reach
+    public StrafeStyle strafeStyle = StrafeStyle.ALTERNATE;
+    public int circleTicks = 30, jitterTicks = 2;
+    public boolean delayedHit = false;                                                       // back off a little and hit at max reach
+    public boolean sprintCut = true;  public int sprintCutChance = 15;                       // hit at the top of a jump, sprint intact
+    public boolean hitSelect = true;                                                         // let them swing first, counter at once
+    public boolean wallPin = true;                                                           // opponent against a wall: no taps, stay on them
+    public boolean uppercut = true;   public int uppercutChance = 10;                        // hit while still rising
+    public boolean pCrit = true;                                                             // hit them the moment they jump
+    public boolean critAutoLaunch = false;                                                   // time the jump so the falling hit is charged (double crits)
+    public boolean delayedCrit = false; public int delayedCritChance = 25;                   // crit just before touching the ground
+    public boolean sweepDisrupt = true;                                                      // non-sprint hits when others are near the target
+    public boolean crosshairShake = false;                                                   // flick the camera away and back after a hit
+    public boolean turnBack = false;                                                         // 180, run a block, snap back
+
+    // Hit registration (ghost-hit guards)
+    public boolean requireCrosshair = true;  // only swing when the crosshair ray really hits the opponent's hitbox
+    public boolean hurtGuard = true;         // never swing into the opponent's hurt-immunity frames (damage is ignored)
+    public boolean blockGuard = true;        // never swing a sword into a raised shield (use the axe instead)
+    public double reachMargin = 0.15;        // swing this far inside max reach; widens automatically after ghost hits
+    public boolean attributeSwap = true;     // Axe/Mace: charge with the sword, swap to the heavy weapon on the hit tick
+
+    // Cobweb
+    public boolean autoWeb = true;           // place a cobweb on the opponent's feet (needs cobwebs in the hotbar)
+    public boolean webSpamCrit = true;       // opponent stuck in a web -> crit every hit
+
+    public int retreatSeconds = 5;           // Retreat When Low: run for this long, then turn back and fight (many servers have no healing)
+    public int retreatCooldownSeconds = 8;   // no new retreat for this long afterwards
+    public int uppercutSTapDelay = 5;        // uppercut = jump + hit on the same tick, S-tap this many ticks later
+    public int turnBackChance = 15;          // % per close-range moment that a turn-back is tried
+
+    // ML
+    public boolean recordDemos = false;      // write (observation, action) rows while a rule mode fights
+
     // Modern PvP
     public TotemMethod totemMethod = TotemMethod.AUTO;
     public boolean healPots = true;          // Pot / NethPot kits: splash instant health at your feet when low
@@ -91,6 +128,9 @@ public final class ModConfig {
             instance.sTapChance = 30;
             instance.sTapMaxDist = 2.5;
             instance.configVersion = 5;
+        }
+        if (instance.configVersion < 6) {        // v0.6: new fields take their defaults
+            instance.configVersion = 6;
         }
         instance.enabled = false;
     }

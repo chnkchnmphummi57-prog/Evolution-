@@ -6,8 +6,9 @@ import dev.pvpai.config.ModConfig;
 import dev.pvpai.observe.Ctx;
 
 /**
- * EXPERIMENTAL. Mace kit: jump, throw a wind charge at your feet near the top of the jump, swap to the mace,
- * then smash on the way down (fall distance above 1.5 blocks). Needs a mace and wind charges in the hotbar.
+ * EXPERIMENTAL. Mace kit: jump, throw a wind charge at your feet near the top of the jump, go back to the sword to keep
+ * charging, then swap to the mace on the hit tick (attribute swap) and smash on the way down (fall > 1.5 blocks).
+ * Without a sword it falls back to holding the mace and waiting for its charge. Needs a mace and wind charges in the hotbar.
  */
 public final class MaceController {
     private enum P { IDLE, JUMP, ASCEND, THROWN, FLY }
@@ -23,6 +24,8 @@ public final class MaceController {
         if (cfg.kit != Kit.MACE || !cfg.useWindCharge || c.maceSlot < 0 || c.windSlot < 0) { p = P.IDLE; state = ""; return false; }
         if (cooldown > 0) cooldown--;
         ticks++;
+        boolean swap = cfg.attributeSwap && c.swordSlot >= 0;
+        int hold = swap ? c.swordSlot : c.maceSlot;      // what we hold while charging
 
         if (p == P.IDLE) {
             boolean go = cooldown == 0 && c.onGround && c.dist >= 2.5 && c.dist <= 9.0 && c.health > cfg.retreatHealth;
@@ -45,16 +48,20 @@ public final class MaceController {
                 state = "mace: wind charge";
             }
             case THROWN -> {
-                a.selectSlot = c.maceSlot; a.forward = true;
+                a.selectSlot = hold; a.forward = true;
                 if (ticks >= 1) { p = P.FLY; ticks = 0; }
                 state = "mace: boost";
             }
             case FLY -> {
-                a.selectSlot = c.maceSlot; a.forward = true; a.sprint = false;
-                boolean smash = !c.onGround && c.velY < 0 && c.fallDistance > 1.5 && c.reachDist <= cfg.reach
-                        && (c.cooldown >= 0.6f || ticks > 30);
-                if (smash) { a.attack = true; p = P.IDLE; cooldown = 60; }
-                else if ((c.onGround && ticks > 3) || ticks > 70) { p = P.IDLE; cooldown = 40; }
+                a.selectSlot = hold; a.forward = true; a.sprint = false; a.fastAim = true;
+                boolean clear = (!cfg.requireCrosshair || c.crosshairOnTarget) && (!cfg.hurtGuard || c.tHurtTime <= 1) && !c.tBlocking;
+                boolean charged = swap ? c.cooldown >= 0.92f : (c.cooldown >= 0.6f || ticks > 30);
+                boolean smash = !c.onGround && c.velY < 0 && c.fallDistance > 1.5 && c.reachDist <= cfg.reach - cfg.reachMargin
+                        && clear && charged;
+                if (smash) {
+                    if (swap) a.selectSlot = c.maceSlot;                    // attribute swap: sword charge, mace hit
+                    a.attack = true; p = P.IDLE; cooldown = 60;
+                } else if ((c.onGround && ticks > 3) || ticks > 70) { p = P.IDLE; cooldown = 40; }
                 state = "mace: smash";
             }
             default -> { }

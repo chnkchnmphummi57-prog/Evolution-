@@ -7,7 +7,10 @@ import dev.pvpai.config.JumpInput;
 import dev.pvpai.config.JumpResetMode;
 import dev.pvpai.config.Kit;
 import dev.pvpai.config.ModConfig;
+import dev.pvpai.config.StrafeStyle;
 import dev.pvpai.config.Strategy;
+import dev.pvpai.ml.MlBackend;
+import dev.pvpai.ml.Recorder;
 import dev.pvpai.core.AiMode;
 import dev.pvpai.core.ScopeGate;
 import net.minecraft.client.gui.DrawContext;
@@ -25,7 +28,7 @@ import java.util.function.Supplier;
 /** Quick control panel. The full settings screen (YACL) is under "Advanced". */
 public final class PvpAiScreen extends Screen {
     private enum Tab {
-        HOME("Home"), MOVES("Moves"), COMBAT("Combat"), INPUT("Input"), MODERN("Modern");
+        HOME("Home"), MOVES("Moves"), COMBAT("Combat"), INPUT("Input"), MODERN("Modern"), TECH("Tech"), ML("ML");
         final String label;
         Tab(String label) { this.label = label; }
     }
@@ -51,7 +54,7 @@ public final class PvpAiScreen extends Screen {
 
         int tx = px + 14;
         for (Tab t : Tab.values()) {
-            int tw = textRenderer.getWidth(t.label) + 18;
+            int tw = textRenderer.getWidth(t.label) + 14;
             addDrawableChild(ButtonWidget.builder(Text.literal(t == tab ? "> " + t.label : t.label), btn -> { tab = t; init(); })
                     .dimensions(tx, py + 30, tw, 18).build());
             tx += tw + 3;
@@ -80,6 +83,8 @@ public final class PvpAiScreen extends Screen {
                 addDrawableChild(toggle(x2, y + gap * 2, w, "W-Tap", () -> cfg.wTap, v -> cfg.wTap = v));
                 addDrawableChild(toggle(x2, y + gap * 3, w, "S-Tap", () -> cfg.sTap, v -> cfg.sTap = v));
                 addDrawableChild(cycle(x, y + gap * 3, w, "Reset mode", JumpResetMode.values(), () -> cfg.jumpResetMode, v -> cfg.jumpResetMode = v, m -> m.label));
+                addDrawableChild(new IntSlider(x2, y + gap * 4, w, "Retreat for", 1, 30, cfg.retreatSeconds, " s", v -> cfg.retreatSeconds = v));
+                addDrawableChild(new IntSlider(x2, y + gap * 5, w, "Retreat cooldown", 0, 60, cfg.retreatCooldownSeconds, " s", v -> cfg.retreatCooldownSeconds = v));
                 addDrawableChild(toggle(x, y + gap * 4, w, "Hard-mask disabled moves", () -> cfg.strictEnforcement, v -> cfg.strictEnforcement = v));
             }
             case COMBAT -> {
@@ -118,6 +123,32 @@ public final class PvpAiScreen extends Screen {
                 addDrawableChild(toggle(x2, y + gap * 4, w, "Healing pots", () -> cfg.healPots, v -> cfg.healPots = v));
                 addDrawableChild(new IntSlider(x, y + gap * 5, w, "Pot below", 2, 19, cfg.potHealth, " HP", v -> cfg.potHealth = v));
                 addDrawableChild(toggle(x2, y + gap * 5, w, "Wind charge (mace)", () -> cfg.useWindCharge, v -> cfg.useWindCharge = v));
+            }
+            case TECH -> {
+                int cw = 100, c1 = px + 14, c2 = c1 + 105, c3 = c2 + 105;
+                addDrawableChild(toggle(c1, y, cw, "Shift-tap", () -> cfg.shiftTap, v -> cfg.shiftTap = v));
+                addDrawableChild(toggle(c2, y, cw, "Block-hit", () -> cfg.blockHit, v -> cfg.blockHit = v));
+                addDrawableChild(toggle(c3, y, cw, "Corner hit", () -> cfg.cornerHit, v -> cfg.cornerHit = v));
+                addDrawableChild(toggle(c1, y + gap, cw, "Delayed hit", () -> cfg.delayedHit, v -> cfg.delayedHit = v));
+                addDrawableChild(toggle(c2, y + gap, cw, "Wall-pin", () -> cfg.wallPin, v -> cfg.wallPin = v));
+                addDrawableChild(toggle(c3, y + gap, cw, "Turn-back", () -> cfg.turnBack, v -> cfg.turnBack = v));
+                addDrawableChild(toggle(c1, y + gap * 2, cw, "Hit-select", () -> cfg.hitSelect, v -> cfg.hitSelect = v));
+                addDrawableChild(toggle(c2, y + gap * 2, cw, "P-crit", () -> cfg.pCrit, v -> cfg.pCrit = v));
+                addDrawableChild(toggle(c3, y + gap * 2, cw, "Sprint-cut", () -> cfg.sprintCut, v -> cfg.sprintCut = v));
+                addDrawableChild(toggle(c1, y + gap * 3, cw, "Uppercut", () -> cfg.uppercut, v -> cfg.uppercut = v));
+                addDrawableChild(toggle(c2, y + gap * 3, cw, "Delayed crit", () -> cfg.delayedCrit, v -> cfg.delayedCrit = v));
+                addDrawableChild(toggle(c3, y + gap * 3, cw, "Shake", () -> cfg.crosshairShake, v -> cfg.crosshairShake = v));
+                addDrawableChild(toggle(c1, y + gap * 4, cw, "Auto web", () -> cfg.autoWeb, v -> cfg.autoWeb = v));
+                addDrawableChild(toggle(c2, y + gap * 4, cw, "Web crit", () -> cfg.webSpamCrit, v -> cfg.webSpamCrit = v));
+                addDrawableChild(cycle(c3, y + gap * 4, cw, "Strafe", StrafeStyle.values(), () -> cfg.strafeStyle, v -> cfg.strafeStyle = v, m -> m.label));
+                addDrawableChild(toggle(c1, y + gap * 5, cw, "Aim gate", () -> cfg.requireCrosshair, v -> cfg.requireCrosshair = v));
+                addDrawableChild(toggle(c2, y + gap * 5, cw, "Hurt guard", () -> cfg.hurtGuard, v -> cfg.hurtGuard = v));
+                addDrawableChild(toggle(c3, y + gap * 5, cw, "Attr swap", () -> cfg.attributeSwap, v -> cfg.attributeSwap = v));
+            }
+            case ML -> {
+                addDrawableChild(toggle(x, y, w, "Record demos", () -> cfg.recordDemos, v -> cfg.recordDemos = v));
+                addDrawableChild(ButtonWidget.builder(Text.literal("Reload model"), b -> MlBackend.INSTANCE.load())
+                        .dimensions(x, y + gap, w, 18).build());
             }
         }
 
@@ -170,6 +201,18 @@ public final class PvpAiScreen extends Screen {
                 g.drawText(textRenderer, "Direct jump = jump physics without the key.", tx, ty + 112, DIM, false);
             }
             case MODERN -> { }
+            case TECH -> { }
+            case ML -> {
+                int rx = px + 186;
+                g.drawText(textRenderer, "Model", rx, ty, TEXT, false);
+                g.drawText(textRenderer, textRenderer.trimToWidth(MlBackend.INSTANCE.status, PW - 200), rx, ty + 12, DIM, false);
+                g.drawText(textRenderer, "Demos", rx, ty + 32, TEXT, false);
+                g.drawText(textRenderer, Recorder.INSTANCE.rows + " rows this session", rx, ty + 44, DIM, false);
+                g.drawText(textRenderer, "Mode ML uses the model;", tx, ty + 60, DIM, false);
+                g.drawText(textRenderer, "without one it runs Strict.", tx, ty + 71, DIM, false);
+                g.drawText(textRenderer, "Record while Strict/Smart fights,", tx, ty + 92, DIM, false);
+                g.drawText(textRenderer, "train with ml/train.py, then reload.", tx, ty + 103, DIM, false);
+            }
         }
     }
 

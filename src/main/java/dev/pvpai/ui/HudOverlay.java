@@ -32,7 +32,7 @@ public final class HudOverlay {
         Action a = ai.lastAction;
 
         boolean compact = cfg.hudCompact;
-        int h = PAD * 2 + 18 + 12 + 39 + (compact ? 0 : 22 + 46 + 36);
+        int h = PAD * 2 + 18 + 12 + 39 + (compact ? 0 : 22 + 46 + 47);
         int sw = g.getScaledWindowWidth(), sh = g.getScaledWindowHeight();
         int x = switch (cfg.hudCorner) {
             case TOP_LEFT, BOTTOM_LEFT -> MARGIN;
@@ -103,6 +103,11 @@ public final class HudOverlay {
         g.drawText(tr, tr.trimToWidth("Scope: " + ScopeGate.describe(mc), iw), ix, cy, DIM, false);
         g.drawText(tr, tr.trimToWidth("Crit: " + ai.critState(), iw), ix, cy + 11, DIM, false);
         g.drawText(tr, tr.trimToWidth("Util: " + ai.utilState(), iw), ix, cy + 22, DIM, false);
+        var ft = ai.tracker;
+        String hits = cfg.recordDemos
+                ? String.format("Hits %d/%d  ghosts %d  REC %d", ft.landed, ft.attempts, ft.ghosts, dev.pvpai.ml.Recorder.INSTANCE.rows)
+                : String.format("Hits %d/%d  ghosts %d  reach -%.2f", ft.landed, ft.attempts, ft.ghosts, cfg.reachMargin + ft.reachPenalty);
+        g.drawText(tr, tr.trimToWidth(hits, iw), ix, cy + 33, ft.ghosts > ft.landed && ft.attempts > 4 ? RED : DIM, false);
     }
 
     private static int hpColor(double f) { return f > 0.5 ? GREEN : f > 0.25 ? AMBER : RED; }

@@ -20,6 +20,13 @@ public final class CameraSmoother {
     public static void setGoal(float yaw, float pitch, boolean fastAim) { goalYaw = yaw; goalPitch = pitch; fast = fastAim; active = true; }
     public static void clear() { active = false; }
 
+    // The rotation sent to the server in the last movement packet. At the start of a tick that is what the server still has,
+    // even though per-frame smoothing may already have moved the camera on.
+    public static volatile float sentYaw, sentPitch;
+    private static volatile boolean sentKnown;
+    public static void recordSent(ClientPlayerEntity p) { sentYaw = p.getYaw(); sentPitch = p.getPitch(); sentKnown = true; }
+    public static boolean sentKnown() { return sentKnown; }
+
     /** Called from the render callback every frame. */
     public static void frame(MinecraftClient mc, float dtTicks) {
         if (!active || mc.player == null || mc.currentScreen != null) return;

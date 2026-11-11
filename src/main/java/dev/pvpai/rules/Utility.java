@@ -6,13 +6,12 @@ import dev.pvpai.config.ModConfig;
 import dev.pvpai.config.Strategy;
 import dev.pvpai.config.TotemMethod;
 import dev.pvpai.observe.Ctx;
-import net.minecraft.util.math.MathHelper;
 
 import java.util.Random;
 
 /**
- * Modern-PvP utilities layered on top of the combat rules: weapon/hotbar management (per kit), shield breaking,
- * auto-totem, auto-eating and healing pots. Runs after the combat controller and may override its action.
+ * Modern-PvP utilities layered on top of the combat rules: weapon/hotbar management per kit, attribute swap,
+ * shield breaking, auto-totem, auto-eating, healing pots and cobwebs. Runs after the combat controller and may override its action.
  */
 public final class Utility {
     private enum Shield { IDLE, AXE }
@@ -20,8 +19,10 @@ public final class Utility {
     private final boolean smart;
     private final Random rng = new Random();
     private Shield sp = Shield.IDLE;
-    private int blockTicks, delay = -1, shieldCooldown, axeTicks, axeWait, totemWait, totemFails, eatTicks, eatWait, potTicks, potCooldown;
-    private boolean eating, potting;
+    private int blockTicks, delay = -1, shieldCooldown, axeTicks, axeWait, totemWait, totemFails, eatTicks, eatWait, potTicks, potCooldown,
+            webCooldown, webPrep, swapCheck, swapFails;
+    private float swapHealth;
+    private boolean eating, potting, swapDisabled;
     public String state = "idle";
 
     public Utility(boolean smart) { this.smart = smart; }
@@ -29,10 +30,11 @@ public final class Utility {
     public void reset() {
         sp = Shield.IDLE; blockTicks = 0; delay = -1; shieldCooldown = 0; axeTicks = 0; axeWait = 0;
         totemWait = 0; totemFails = 0; eatTicks = 0; eatWait = 0; potTicks = 0; potCooldown = 0;
+        webCooldown = 0; webPrep = 0; swapCheck = 0; swapFails = 0; swapDisabled = false;
         eating = false; potting = false; state = "idle";
     }
 
-    /** Primary weapon slot for the selected kit (falls back to a sword, then an axe). */
+    /** The kit's heavy weapon slot (axe / mace), or the sword for the other kits. Falls back to sword, then axe. */
     public static int weaponSlot(Ctx c, ModConfig cfg) {
         int w = switch (cfg.kit) {
             case AXE -> c.axeSlot;
@@ -43,10 +45,28 @@ public final class Utility {
         return w;
     }
 
+    private static boolean heavyKit(ModConfig cfg) { return cfg.kit == Kit.AXE || cfg.kit == Kit.MACE; }
+
+    /**
+     * Attribute swap: the slow weapon's charge is a long wait (axe ~20 ticks, mace ~33). The server computes a hit with the
+     * charge built up by the item held BEFORE the swap, so we hold the sword while charging and swap to the heavy weapon
+     * on the same tick as the attack. A watchdog turns it off if hits stop doing damage (server fixed it / not supported).
+     */
+    public boolean attributeSwapActive(Ctx c, ModConfig cfg) {
+        return cfg.attributeSwap && !swapDisabled && heavyKit(cfg) && c.swordSlot >= 0 && weaponSlot(c, cfg) >= 0
+                && weaponSlot(c, cfg) != c.swordSlot;
+    }
+
+    /** Slot to hold between hits. */
+    public int idleSlot(Ctx c, ModConfig cfg) {
+        return attributeSwapActive(c, cfg) ? c.swordSlot : weaponSlot(c, cfg);
+    }
+
     public void apply(Action a, Ctx c, ModConfig cfg, boolean combatBusy, boolean inReach) {
         if (shieldCooldown > 0) shieldCooldown--;
         if (eatWait > 0) eatWait--;
         if (potCooldown > 0) potCooldown--;
+        if (webCooldown > 0) webCooldown--;
         String s = "idle";
 
         // 1) Totem: offhand empty or health low. Click-swap first; if that does not stick, fall back to swap-hands.
@@ -58,12 +78,12 @@ public final class Utility {
             } else if (totemWait > 0) {
                 totemWait--;
                 s = "totem: swapping";
-                if (totemWait == 0) totemFails++;           // still not in the offhand after the wait
+                if (totemWait == 0) totemFails++;
             } else {
                 boolean hand = cfg.totemMethod == TotemMethod.HAND_SWAP || (cfg.totemMethod == TotemMethod.AUTO && totemFails >= 1);
                 if (hand && c.totemSlot < 9) {
                     if (c.selectedSlot == c.totemSlot) { a.swapHands = true; totemWait = 4; }
-                    else a.selectSlot = c.totemSlot;       // select it now, swap hands next tick
+                    else a.selectSlot = c.totemSlot;
                     s = "totem: swap hands";
                 } else {
                     a.swapTotemFrom = c.totemSlot; totemWait = 4;
@@ -102,11 +122,24 @@ public final class Utility {
             s = "healing pot";
         }
 
-        // 4) Shield break: opponent has been blocking for a while -> axe. An axe disables a shield at ANY charge,
+        // 4) Cobweb on the opponent's feet while the weapon recharges. Combat then crit-spams the stuck opponent.
+        boolean webWanted = cfg.autoWeb && c.webSlot >= 0 && c.tGround != null && !c.tInWeb && c.tOnGround && webCooldown == 0
+                && !combatBusy && !eating && !potting && sp == Shield.IDLE && c.dist >= 1.8 && c.dist <= 4.4 && c.cooldown < 0.7f;
+        if (webPrep > 0) webPrep--;
+        boolean webBusy = false;
+        if (webWanted || webPrep > 0) {
+            webBusy = true;
+            a.attack = false;
+            if (c.selectedSlot != c.webSlot) { a.selectSlot = c.webSlot; webPrep = 3; s = "web: selecting"; }
+            else if (c.tGround != null && !c.tInWeb) { a.webGround = c.tGround; webCooldown = 60; webPrep = 0; s = "web: placed"; }
+        }
+
+        // 5) Shield break: opponent has been blocking for a while -> axe. An axe disables a shield at ANY charge,
         //    so it swings immediately (Strict: same tick as the switch; Smart: 0-2 ticks later).
-        boolean canBreak = cfg.shieldBreak && cfg.kit != Kit.AXE && c.axeSlot >= 0 && !potting;
+        boolean canBreak = cfg.shieldBreak && cfg.kit != Kit.AXE && c.axeSlot >= 0 && !potting && !webBusy;
         if (c.tBlocking) blockTicks++; else if (sp == Shield.IDLE) { blockTicks = 0; delay = -1; }
-        boolean aimedOk = Math.abs(MathHelper.wrapDegrees(c.yawToTarget - c.yaw)) < 25;
+        boolean aimedOk = cfg.requireCrosshair ? c.crosshairOnTarget : Math.abs(net.minecraft.util.math.MathHelper.wrapDegrees(c.yawToTarget - c.yaw)) < 25;
+        boolean hurtOk = !cfg.hurtGuard || c.tHurtTime <= 1;
 
         if (sp == Shield.IDLE) {
             if (canBreak && blockTicks > 0 && delay < 0) {
@@ -128,7 +161,7 @@ public final class Utility {
             axeTicks++;
             a.selectSlot = c.axeSlot; a.attack = false; a.use = false;
             s = "shield: axe";
-            if (c.tBlocking && inReach && aimedOk && axeTicks > axeWait) {
+            if (c.tBlocking && inReach && aimedOk && hurtOk && axeTicks > axeWait) {
                 a.attack = true;
                 finishShield();
             } else if (!c.tBlocking || axeTicks > 40 || !canBreak) {
@@ -136,10 +169,23 @@ public final class Utility {
             }
         }
 
-        // 5) Default hotbar: the kit's weapon
-        int weapon = weaponSlot(c, cfg);
-        if (a.selectSlot < 0 && !eating && !potting && sp == Shield.IDLE && weapon >= 0 && c.selectedSlot != weapon) {
-            a.selectSlot = weapon;
+        // 6) Attribute swap on the hit tick (Axe / Mace kits), with a watchdog on whether the hits still do damage
+        if (swapCheck > 0 && --swapCheck == 0) {
+            if (c.tHealth < swapHealth - 0.01f) swapFails = Math.max(0, swapFails - 1);
+            else if (!c.tBlocking && ++swapFails >= 3) swapDisabled = true;
+        }
+        if (attributeSwapActive(c, cfg) && a.attack && sp == Shield.IDLE && !eating && !potting && !webBusy
+                && a.selectSlot < 0 && c.selectedSlot == c.swordSlot) {
+            a.selectSlot = weaponSlot(c, cfg);
+            swapCheck = 6; swapHealth = c.tHealth;
+            s = "attr swap hit";
+        }
+        if (swapDisabled && heavyKit(cfg)) s = "attr swap: off (hits not registering)";
+
+        // 7) Default hotbar: the weapon to hold between hits
+        int idle = idleSlot(c, cfg);
+        if (a.selectSlot < 0 && !eating && !potting && !webBusy && sp == Shield.IDLE && idle >= 0 && c.selectedSlot != idle) {
+            a.selectSlot = idle;
         }
         state = s;
     }
