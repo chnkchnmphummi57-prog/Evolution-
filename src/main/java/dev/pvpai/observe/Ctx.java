@@ -1,25 +1,22 @@
 package dev.pvpai.observe;
 
-import dev.pvpai.config.ModConfig;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.entity.LivingEntity;
-import dev.pvpai.config.Kit;
-import dev.pvpai.config.Strategy;
 import dev.pvpai.act.CameraSmoother;
-import net.minecraft.block.Blocks;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.entity.attribute.EntityAttributes;
+import dev.pvpai.config.Kit;
+import dev.pvpai.config.ModConfig;
+import dev.pvpai.config.Strategy;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.PotionContentsComponent;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
@@ -31,54 +28,27 @@ public final class Ctx {
     public float yaw, pitch, yawToTarget, pitchToTarget;
     public double reachDist, dist, dx, dy, dz, velX, velY, velZ, tVelX, tVelY, tVelZ;
     public float health, maxHealth, tHealth, tMaxHealth, cooldown;
-    public int hurtTime, tHurtTime;
-    public boolean onGround, sprinting, tOnGround;
-    public float edgeYaw, edgePitch;
-    public boolean hasEdge, tWallBehind, crosshairOnTarget, tInWeb, inWeb;
     public float chargePerTick = 0.08f;        // attack-charge progress per tick for the held weapon (sword 1.6/s = 0.08)
-    public double groundGap = 99;              // blocks between our feet and the solid block below (99 = none close)
-    public BlockPos tGround;                   // block under the opponent (for placing a cobweb on their feet)
-    public int nearbyOthers;
+    public int hurtTime, tHurtTime;
+    public boolean onGround, sprinting, tOnGround, crosshairOnTarget;
     public boolean tBlocking, tSwinging, usingItem, offhandShield, offhandTotem, offhandEmpty, holdingAxe;
-    public int selectedSlot, swordSlot = -1, axeSlot = -1, foodSlot = -1, totemSlot = -1, maceSlot = -1, windSlot = -1, potSlot = -1, webSlot = -1;
+    public int selectedSlot, swordSlot = -1, axeSlot = -1, foodSlot = -1, totemSlot = -1, maceSlot = -1, windSlot = -1, potSlot = -1;
     public double fallDistance;
     public float tYaw, tPitch;
 
     public static Ctx build(ClientPlayerEntity p, LivingEntity t) {
         Ctx c = new Ctx();
+        MinecraftClient mc = MinecraftClient.getInstance();
         Vec3d eye = p.getEyePos();
-        Vec3d aim = t.getBoundingBox().getCenter();
+        Box bb = t.getBoundingBox();
+        Vec3d aim = bb.getCenter();
         c.dx = aim.x - eye.x; c.dy = aim.y - eye.y; c.dz = aim.z - eye.z;
         double h = Math.sqrt(c.dx * c.dx + c.dz * c.dz);
         c.dist = p.distanceTo(t);
-        Box bb = t.getBoundingBox();
-        Vec3d np = new Vec3d(MathHelper.clamp(eye.x, bb.minX, bb.maxX),
-                MathHelper.clamp(eye.y, bb.minY, bb.maxY), MathHelper.clamp(eye.z, bb.minZ, bb.maxZ));
-        c.reachDist = eye.distanceTo(np);
-        // Aim point on the hitbox edge nearest to us (corner hitting), nudged slightly inside so the ray still hits.
-        Vec3d toCtr = bb.getCenter().subtract(np);
-        if (c.reachDist > 0.05 && toCtr.length() > 0.05) {
-            Vec3d ep = np.add(toCtr.multiply(0.04 / toCtr.length()));
-            double ex = ep.x - eye.x, ey = ep.y - eye.y, ez = ep.z - eye.z;
-            c.edgeYaw = (float) (MathHelper.atan2(ez, ex) * 180.0 / Math.PI) - 90.0f;
-            c.edgePitch = (float) (-(MathHelper.atan2(ey, Math.sqrt(ex * ex + ez * ez)) * 180.0 / Math.PI));
-            c.hasEdge = true;
-        }
-        // Wall behind the opponent (seen from us)? Used for wall-pinning.
-        MinecraftClient mc = MinecraftClient.getInstance();
-        double hx = t.getX() - p.getX(), hz = t.getZ() - p.getZ(), hl = Math.sqrt(hx * hx + hz * hz);
-        if (mc.world != null && hl > 1.0e-4) {
-            hx /= hl; hz /= hl;
-            for (double off : new double[] {0.9, 1.3}) {
-                for (double yy : new double[] {0.4, 1.4}) {
-                    BlockPos bp = BlockPos.ofFloored(t.getX() + hx * off, t.getY() + yy, t.getZ() + hz * off);
-                    if (mc.world.getBlockState(bp).isSolidBlock(mc.world, bp)) c.tWallBehind = true;
-                }
-            }
-            for (PlayerEntity o : mc.world.getPlayers()) {
-                if (o != p && o != t && o.isAlive() && !o.isSpectator() && o.distanceTo(t) < 3.0) c.nearbyOthers++;
-            }
-        }
+        // Reach as the server measures it: eye to the nearest point of the opponent's hitbox.
+        Vec3d near = new Vec3d(MathHelper.clamp(eye.x, bb.minX, bb.maxX), MathHelper.clamp(eye.y, bb.minY, bb.maxY),
+                MathHelper.clamp(eye.z, bb.minZ, bb.maxZ));
+        c.reachDist = eye.distanceTo(near);
         c.yaw = p.getYaw(); c.pitch = p.getPitch();
         c.yawToTarget = (float) (MathHelper.atan2(c.dz, c.dx) * 180.0 / Math.PI) - 90.0f;
         c.pitchToTarget = (float) (-(MathHelper.atan2(c.dy, h) * 180.0 / Math.PI));
@@ -96,9 +66,6 @@ public final class Ctx {
         c.tYaw = MathHelper.wrapDegrees(t.getYaw() - c.yawToTarget);   // opponent facing relative to the line between us
         c.tPitch = t.getPitch();
 
-        if (!c.hasEdge) { c.edgeYaw = c.yawToTarget; c.edgePitch = c.pitchToTarget; }
-
-        // Does the crosshair ray really pass through the opponent's hitbox? A swing that misses it is a ghost hit.
         // A swing counts only if (1) vanilla's own crosshair pick says the click would hit this player, and (2) the rotation the
         // SERVER last received also points at the hitbox. The camera is eased every frame, so it can be ahead of what the server has.
         Box tight = bb.expand(-0.02);
@@ -110,22 +77,11 @@ public final class Ctx {
         }
         c.crosshairOnTarget = vanilla && serverLook;
 
-        if (mc.world != null) {
-            c.tGround = t.getBlockPos().down();
-            c.tInWeb = mc.world.getBlockState(t.getBlockPos()).isOf(Blocks.COBWEB)
-                    || mc.world.getBlockState(t.getBlockPos().up()).isOf(Blocks.COBWEB);
-            c.inWeb = mc.world.getBlockState(p.getBlockPos()).isOf(Blocks.COBWEB)
-                    || mc.world.getBlockState(p.getBlockPos().up()).isOf(Blocks.COBWEB);
-            BlockPos feet = p.getBlockPos();
-            if (solid(mc, feet.down())) c.groundGap = p.getY() - feet.getY();
-            else if (solid(mc, feet.down(2))) c.groundGap = p.getY() - feet.getY() + 1.0;
-        }
         c.tBlocking = t.isBlocking();
         c.tSwinging = t.handSwinging;
         scan(c, p);
         return c;
     }
-
 
     /** Own state only (health, inventory, offhand). Used on ticks with no opponent so totems and eating still work. */
     public static Ctx buildSelf(ClientPlayerEntity p) {
@@ -137,10 +93,6 @@ public final class Ctx {
         c.onGround = p.isOnGround(); c.sprinting = p.isSprinting(); c.hurtTime = p.hurtTime;
         scan(c, p);
         return c;
-    }
-
-    private static boolean solid(MinecraftClient mc, BlockPos bp) {
-        return !mc.world.getBlockState(bp).getCollisionShape(mc.world, bp).isEmpty();
     }
 
     private static void scan(Ctx c, ClientPlayerEntity p) {
@@ -161,7 +113,6 @@ public final class Ctx {
                 if (c.axeSlot < 0 && s.isIn(ItemTags.AXES)) c.axeSlot = i;
                 if (c.maceSlot < 0 && s.isOf(Items.MACE)) c.maceSlot = i;
                 if (c.windSlot < 0 && s.isOf(Items.WIND_CHARGE)) c.windSlot = i;
-                if (c.webSlot < 0 && s.isOf(Items.COBWEB)) c.webSlot = i;
                 if (c.foodSlot < 0 && (s.isOf(Items.GOLDEN_APPLE) || s.isOf(Items.ENCHANTED_GOLDEN_APPLE))) c.foodSlot = i;
                 if (c.potSlot < 0 && s.isOf(Items.SPLASH_POTION) && isHealing(s)) c.potSlot = i;
             }
@@ -196,13 +147,12 @@ public final class Ctx {
         o[i++] = (float) c(reachDist / 6);                                                                                     // 26
         o[i++] = crosshairOnTarget ? 1 : 0; o[i++] = tBlocking ? 1 : 0; o[i++] = tSwinging ? 1 : 0; o[i++] = usingItem ? 1 : 0; // 30
         o[i++] = offhandShield ? 1 : 0; o[i++] = offhandTotem ? 1 : 0;                                                         // 32
-        o[i++] = tInWeb ? 1 : 0; o[i++] = tWallBehind ? 1 : 0; o[i++] = (float) c(groundGap / 4);                              // 35
-        o[i++] = cfg.jump ? 1 : 0; o[i++] = cfg.crit ? 1 : 0; o[i++] = cfg.jumpReset ? 1 : 0; o[i++] = cfg.strafe ? 1 : 0;      // 39
-        o[i++] = cfg.retreatLow ? 1 : 0; o[i++] = cfg.wTap ? 1 : 0; o[i++] = cfg.sTap ? 1 : 0;                                 // 42
+        o[i++] = cfg.jump ? 1 : 0; o[i++] = cfg.crit ? 1 : 0; o[i++] = cfg.jumpReset ? 1 : 0; o[i++] = cfg.strafe ? 1 : 0;      // 36
+        o[i++] = cfg.retreatLow ? 1 : 0; o[i++] = cfg.wTap ? 1 : 0; o[i++] = cfg.sTap ? 1 : 0;                                 // 39
         o[i++] = cfg.strategy == Strategy.NORMAL ? 1 : 0; o[i++] = cfg.strategy == Strategy.SAFE ? 1 : 0;
-        o[i++] = cfg.strategy == Strategy.CRIT_SPAM ? 1 : 0;                                                                   // 45
-        for (Kit k : Kit.values()) o[i++] = cfg.kit == k ? 1 : 0;                                                              // 52
-        return o;                                                                                                              // 53..63 reserved
+        o[i++] = cfg.strategy == Strategy.CRIT_SPAM ? 1 : 0;                                                                   // 42
+        for (Kit k : Kit.values()) o[i++] = cfg.kit == k ? 1 : 0;                                                              // 45
+        return o;                                                                                                              // 46..63 reserved
     }
 
     private static double c(double v) { return Math.max(-1, Math.min(1, v)); }

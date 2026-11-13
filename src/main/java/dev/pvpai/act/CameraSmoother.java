@@ -20,6 +20,13 @@ public final class CameraSmoother {
     public static void setGoal(float yaw, float pitch, boolean fastAim) { goalYaw = yaw; goalPitch = pitch; fast = fastAim; active = true; }
     public static void clear() { active = false; }
 
+    /** Turns to the goal immediately, through the same call real mouse movement uses. */
+    public static void snap(ClientPlayerEntity p, float yaw, float pitch) {
+        float dy = MathHelper.wrapDegrees(yaw - p.getYaw());
+        float dp = MathHelper.clamp(pitch, -90f, 90f) - p.getPitch();
+        p.changeLookDirection(dy / 0.15, dp / 0.15);
+    }
+
     // The rotation sent to the server in the last movement packet. At the start of a tick that is what the server still has,
     // even though per-frame smoothing may already have moved the camera on.
     public static volatile float sentYaw, sentPitch;

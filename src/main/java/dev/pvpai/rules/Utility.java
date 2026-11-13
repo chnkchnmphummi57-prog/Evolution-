@@ -11,7 +11,7 @@ import java.util.Random;
 
 /**
  * Modern-PvP utilities layered on top of the combat rules: weapon/hotbar management per kit, attribute swap,
- * shield breaking, auto-totem, auto-eating, healing pots and cobwebs. Runs after the combat controller and may override its action.
+ * shield breaking, auto-totem, auto-eating and healing pots. Runs after the combat controller and may override its action.
  */
 public final class Utility {
     private enum Shield { IDLE, AXE }
@@ -20,7 +20,7 @@ public final class Utility {
     private final Random rng = new Random();
     private Shield sp = Shield.IDLE;
     private int blockTicks, delay = -1, shieldCooldown, axeTicks, axeWait, totemWait, totemFails, eatTicks, eatWait, potTicks, potCooldown,
-            webCooldown, webPrep, swapCheck, swapFails;
+            swapCheck, swapFails;
     private float swapHealth;
     private boolean eating, potting, swapDisabled;
     public String state = "idle";
@@ -30,7 +30,7 @@ public final class Utility {
     public void reset() {
         sp = Shield.IDLE; blockTicks = 0; delay = -1; shieldCooldown = 0; axeTicks = 0; axeWait = 0;
         totemWait = 0; totemFails = 0; eatTicks = 0; eatWait = 0; potTicks = 0; potCooldown = 0;
-        webCooldown = 0; webPrep = 0; swapCheck = 0; swapFails = 0; swapDisabled = false;
+        swapCheck = 0; swapFails = 0; swapDisabled = false;
         eating = false; potting = false; state = "idle";
     }
 
@@ -66,7 +66,6 @@ public final class Utility {
         if (shieldCooldown > 0) shieldCooldown--;
         if (eatWait > 0) eatWait--;
         if (potCooldown > 0) potCooldown--;
-        if (webCooldown > 0) webCooldown--;
         String s = "idle";
 
         // 1) Totem: offhand empty or health low. Click-swap first; if that does not stick, fall back to swap-hands.
@@ -93,7 +92,7 @@ public final class Utility {
         }
 
         // 2) Eating: only when the opponent is not close
-        int eatHp = cfg.eatHealth + (cfg.strategy == Strategy.SAFE ? 4 : 0) + (cfg.kit == Kit.UHC ? 4 : 0);
+        int eatHp = cfg.eatHealth + (cfg.strategy == Strategy.SAFE ? 4 : 0);
         boolean wantEat = cfg.autoEat && eatWait == 0 && c.foodSlot >= 0 && c.health <= eatHp && c.health < c.maxHealth;
         if (!eating && wantEat && !combatBusy && !potting && c.dist >= 4.0) { eating = true; eatTicks = 0; sp = Shield.IDLE; }
         if (eating) {
@@ -112,7 +111,7 @@ public final class Utility {
         }
 
         // 3) Healing pots (Pot / NethPot): look at your feet and throw
-        boolean potKit = cfg.healPots && (cfg.kit == Kit.POT || cfg.kit == Kit.NETHPOT);
+        boolean potKit = cfg.healPots;
         if (!potting && potKit && c.potSlot >= 0 && c.health <= cfg.potHealth && potCooldown == 0) { potting = true; potTicks = 0; sp = Shield.IDLE; }
         if (potting) {
             potTicks++;
@@ -122,21 +121,9 @@ public final class Utility {
             s = "healing pot";
         }
 
-        // 4) Cobweb on the opponent's feet while the weapon recharges. Combat then crit-spams the stuck opponent.
-        boolean webWanted = cfg.autoWeb && c.webSlot >= 0 && c.tGround != null && !c.tInWeb && c.tOnGround && webCooldown == 0
-                && !combatBusy && !eating && !potting && sp == Shield.IDLE && c.dist >= 1.8 && c.dist <= 4.4 && c.cooldown < 0.7f;
-        if (webPrep > 0) webPrep--;
-        boolean webBusy = false;
-        if (webWanted || webPrep > 0) {
-            webBusy = true;
-            a.attack = false;
-            if (c.selectedSlot != c.webSlot) { a.selectSlot = c.webSlot; webPrep = 3; s = "web: selecting"; }
-            else if (c.tGround != null && !c.tInWeb) { a.webGround = c.tGround; webCooldown = 60; webPrep = 0; s = "web: placed"; }
-        }
-
         // 5) Shield break: opponent has been blocking for a while -> axe. An axe disables a shield at ANY charge,
         //    so it swings immediately (Strict: same tick as the switch; Smart: 0-2 ticks later).
-        boolean canBreak = cfg.shieldBreak && cfg.kit != Kit.AXE && c.axeSlot >= 0 && !potting && !webBusy;
+        boolean canBreak = cfg.shieldBreak && cfg.kit != Kit.AXE && c.axeSlot >= 0 && !potting;
         if (c.tBlocking) blockTicks++; else if (sp == Shield.IDLE) { blockTicks = 0; delay = -1; }
         boolean aimedOk = cfg.requireCrosshair ? c.crosshairOnTarget : Math.abs(net.minecraft.util.math.MathHelper.wrapDegrees(c.yawToTarget - c.yaw)) < 25;
         boolean hurtOk = !cfg.hurtGuard || c.tHurtTime <= 1;
@@ -174,7 +161,7 @@ public final class Utility {
             if (c.tHealth < swapHealth - 0.01f) swapFails = Math.max(0, swapFails - 1);
             else if (!c.tBlocking && ++swapFails >= 3) swapDisabled = true;
         }
-        if (attributeSwapActive(c, cfg) && a.attack && sp == Shield.IDLE && !eating && !potting && !webBusy
+        if (attributeSwapActive(c, cfg) && a.attack && sp == Shield.IDLE && !eating && !potting
                 && a.selectSlot < 0 && c.selectedSlot == c.swordSlot) {
             a.selectSlot = weaponSlot(c, cfg);
             swapCheck = 6; swapHealth = c.tHealth;
@@ -184,7 +171,7 @@ public final class Utility {
 
         // 7) Default hotbar: the weapon to hold between hits
         int idle = idleSlot(c, cfg);
-        if (a.selectSlot < 0 && !eating && !potting && !webBusy && sp == Shield.IDLE && idle >= 0 && c.selectedSlot != idle) {
+        if (a.selectSlot < 0 && !eating && !potting && sp == Shield.IDLE && idle >= 0 && c.selectedSlot != idle) {
             a.selectSlot = idle;
         }
         state = s;

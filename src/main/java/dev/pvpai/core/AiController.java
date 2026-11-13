@@ -77,9 +77,9 @@ public final class AiController {
         holdingKeys = true;
         lastCtx = ctx; lastAction = a;
 
-        if (mlActive) status = "ML | combo " + tracker.combo + (maceActive ? " | " + mace.state : "");
+        if (mlActive) status = "ML | combo " + tracker.combo + (maceActive || (cfg.kit == dev.pvpai.config.Kit.MACE && !mace.state.isEmpty()) ? " | " + mace.state : "");
         else status = ctl.phase + " | combo " + tracker.combo + " | crits " + ctl.critsFired
-                + (maceActive ? " | " + mace.state : "") + (cfg.mode == AiMode.ML ? " | ML>strict" : "");
+                + (maceActive || (cfg.kit == dev.pvpai.config.Kit.MACE && !mace.state.isEmpty()) ? " | " + mace.state : "") + (cfg.mode == AiMode.ML ? " | ML>strict" : "");
     }
 
     /** Same hit-registration gates the rule modes use, so a model cannot send ghost hits either. */

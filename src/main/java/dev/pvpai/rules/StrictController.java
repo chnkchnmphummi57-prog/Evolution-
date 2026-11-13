@@ -4,7 +4,6 @@ import dev.pvpai.act.Action;
 import dev.pvpai.config.InputMode;
 import dev.pvpai.config.JumpResetMode;
 import dev.pvpai.config.ModConfig;
-import dev.pvpai.config.StrafeStyle;
 import dev.pvpai.config.Strategy;
 import dev.pvpai.observe.Ctx;
 import dev.pvpai.observe.FightTracker;
@@ -13,18 +12,17 @@ import net.minecraft.util.math.MathHelper;
 import java.util.Random;
 
 /**
- * Rule-based fighter: three strategies (Normal / Safe / Crit spam) plus the sword techniques.
- * smart=false (Strict): deterministic, chances become "every Nth". smart=true (Smart): random rolls, aim noise, hesitation.
+ * Rule-based fighter: three strategies (Normal / Safe / Crit spam) plus the kept sword techniques:
+ * reach spacing, circle strafing, hit-select, W/S/shift taps, uppercut, KB displacement, crit, jump reset, retreat.
+ * smart=false (Strict): deterministic, chances become "every Nth". smart=true (Smart): random rolls, aim noise, optional jitter.
  *
  * Hit registration: a swing is only sent when the crosshair ray hits the hitbox, the opponent is out of hurt-immunity,
- * is not behind a raised shield, and is inside (max reach - margin - adaptive penalty). That is what stops ghost hits.
- *
+ * is not behind a raised shield, and is inside (max reach - margin - adaptive penalty).
  * Crit rules (vanilla): the hit must land while falling, off the ground, >90% charged, and NOT SPRINTING.
  */
 public final class StrictController {
-    public enum Phase { NORMAL, RUN_BACK, KB_HIT, CRIT_PUNISH, TURN_BACK }
-    private enum Tap { NONE, W, S, SHIFT, BLOCK }
-    private enum Jump { CRIT, DELAYED_CRIT, SPRINT_CUT }
+    public enum Phase { NORMAL, RUN_BACK, KB_HIT, CRIT_PUNISH }
+    private enum Tap { NONE, W, S, SHIFT }
 
     public Phase phase = Phase.NORMAL;
     public int critsFired;
@@ -33,23 +31,22 @@ public final class StrictController {
     private final Random rng = new Random();
     private final int[] ctr = new int[10];
     private ModConfig cfgRef;
-    private int phaseTicks, strafeTick, styleTick, tapLeft, pendingTicks, attackDelay = -1, critCooldown, jumpCooldown,
-            counterTicks, idleTicks, resetPending, punishFails, blockWait, spacingWait, turnCooldown, turnProbe, snapTicks, shakeLeft, shakeSign = 1,
-            retreatLeft, retreatCooldown, uppercutTap;
+    private int phaseTicks, strafeTick, tapLeft, tapDelay, pendingTicks, attackDelay = -1, critCooldown, jumpCooldown,
+            counterTicks, idleTicks, resetPending, punishFails, blockWait, snapTicks, retreatLeft, retreatCooldown,
+            upSWait = -1, upAttackIn, kbState, kbWait, kbTicks;
     private boolean strafeRight = true, pendingCrit, cycleRolled, cycleCrit, punishCombo;
     private Tap tapType = Tap.NONE;
-    private Jump kind = Jump.CRIT;
 
     public StrictController(boolean smart) { this.smart = smart; }
 
-    public boolean busy() { return pendingCrit || counterTicks > 0 || phase == Phase.RUN_BACK || phase == Phase.KB_HIT || phase == Phase.TURN_BACK; }
+    public boolean busy() { return pendingCrit || counterTicks > 0 || kbState != 0 || upAttackIn > 0 || phase == Phase.RUN_BACK || phase == Phase.KB_HIT; }
 
     public void reset() {
-        phase = Phase.NORMAL; phaseTicks = 0; tapLeft = 0; pendingCrit = false; attackDelay = -1; critsFired = 0;
+        phase = Phase.NORMAL; phaseTicks = 0; tapLeft = 0; tapDelay = 0; pendingCrit = false; attackDelay = -1; critsFired = 0;
         critCooldown = 0; jumpCooldown = 0; counterTicks = 0; idleTicks = 0; resetPending = 0; punishFails = 0;
-        blockWait = 0; spacingWait = 0; turnCooldown = 0; turnProbe = 0; snapTicks = 0; shakeLeft = 0;
-        retreatLeft = 0; retreatCooldown = 0; uppercutTap = 0;
-        cycleRolled = false; cycleCrit = false; punishCombo = false; tapType = Tap.NONE; kind = Jump.CRIT;
+        blockWait = 0; snapTicks = 0; retreatLeft = 0; retreatCooldown = 0; upSWait = -1; upAttackIn = 0;
+        kbState = 0; kbWait = 0; kbTicks = 0;
+        cycleRolled = false; cycleCrit = false; punishCombo = false; tapType = Tap.NONE;
         java.util.Arrays.fill(ctr, 0);
     }
 
@@ -66,40 +63,35 @@ public final class StrictController {
         cfgRef = cfg;
         Action a = new Action();
         Strategy st = cfg.strategy;
-        boolean webbed = cfg.webSpamCrit && c.tInWeb;                 // opponent stuck in a cobweb: crit every hit
-        boolean spamStrat = webbed || st == Strategy.CRIT_SPAM;
-        boolean safe = st == Strategy.SAFE && !webbed;
-        boolean pin = cfg.wallPin && c.tWallBehind && !safe && !webbed;   // opponent against a wall: stay on them
-        double engage = safe ? cfg.engageDist + 0.9 : pin ? Math.min(cfg.engageDist, 2.4) : cfg.engageDist;
-        double minDist = safe ? cfg.minDist + 0.8 : webbed ? Math.max(cfg.minDist, 2.1) : cfg.minDist;   // never step into the web
+        boolean spamStrat = st == Strategy.CRIT_SPAM;
+        boolean safe = st == Strategy.SAFE;
+        double engage = safe ? cfg.engageDist + 0.9 : cfg.engageDist;          // SAFE: hold distance just outside reach
+        double minDist = safe ? cfg.minDist + 0.8 : cfg.minDist;
         double retreatHp = safe ? Math.max(cfg.retreatHealth, 10.0) : cfg.retreatHealth;
         int critPct = spamStrat ? 100 : safe ? Math.min(10, cfg.critChancePercent) : cfg.critChancePercent;
         int comboLock = spamStrat ? 99 : cfg.comboLock;
 
-        // Reach and aim. Corner hitting: near max reach, aim at the hitbox edge closest to us.
-        double reachUse = cfg.reach - cfg.reachMargin - f.reachPenalty;
-        boolean inReach = c.reachDist <= reachUse;
-        boolean corner = cfg.cornerHit && c.hasEdge && c.reachDist > reachUse - 0.4;
-        float aimYaw = corner ? c.edgeYaw : c.yawToTarget;
-        float aimPitch = corner ? c.edgePitch : c.pitchToTarget;
-        float yawErr = MathHelper.wrapDegrees(aimYaw - c.yaw);
-        float pitchErr = aimPitch - c.pitch;
+        // Reach: hit at the edge of reach. hitDist is the largest distance we swing from, holdDist is where we wait while recharging
+        // (just outside the opponent's own reach).
+        double hitDist = cfg.reach - cfg.reachMargin - f.reachPenalty;
+        double holdDist = cfg.reach + 0.35;
+        boolean inReach = c.reachDist <= hitDist;
+
+        float yawErr = MathHelper.wrapDegrees(c.yawToTarget - c.yaw);
+        float pitchErr = c.pitchToTarget - c.pitch;
         a.aim = true;
-        a.goalYaw = aimYaw + (smart ? (rng.nextFloat() - 0.5f) * 1.6f : 0f);
-        a.goalPitch = MathHelper.clamp(aimPitch + (smart ? (rng.nextFloat() - 0.5f) : 0f), -90f, 90f);
+        a.goalYaw = c.yawToTarget + (smart ? (rng.nextFloat() - 0.5f) * 1.6f : 0f);
+        a.goalPitch = MathHelper.clamp(c.pitchToTarget + (smart ? (rng.nextFloat() - 0.5f) : 0f), -90f, 90f);
 
         if (critCooldown > 0) critCooldown--;
         if (jumpCooldown > 0) jumpCooldown--;
-        if (turnCooldown > 0) turnCooldown--;
 
         // Hit-registration gates
         if (c.tBlocking) blockWait++; else blockWait = 0;
         boolean blockHold = cfg.blockGuard && c.tBlocking && blockWait < 100;   // a sword into a raised shield is a ghost hit
         boolean hurtOk = !cfg.hurtGuard || c.tHurtTime <= 1;                    // damage during hurt-immunity is ignored
         boolean aimed = Math.abs(yawErr) < 12 && Math.abs(pitchErr) < 15;
-        boolean aimedAir = Math.abs(yawErr) < 30 && Math.abs(pitchErr) < 50;
         boolean look = cfg.requireCrosshair ? c.crosshairOnTarget : aimed;
-        boolean lookAir = cfg.requireCrosshair ? c.crosshairOnTarget : aimedAir;
         boolean clear = hurtOk && !blockHold;
         boolean pkt = cfg.inputMode == InputMode.PACKET;
         if (inReach && c.cooldown >= 0.8f && !c.crosshairOnTarget) a.fastAim = true;   // line the crosshair up quickly before a swing
@@ -113,19 +105,18 @@ public final class StrictController {
         idleTicks++;
 
         boolean ready = c.cooldown >= ((counter && cfg.hitSelect) ? 0.85f : 0.92f);
+        boolean soon = c.cooldown >= 0.92f - 2f * c.chargePerTick;                // ready within about two ticks
         boolean launchReady = cfg.critAutoLaunch
-                ? (0.92f - c.cooldown) / Math.max(0.02f, c.chargePerTick) <= 7.0f      // flight time to the falling phase is ~7 ticks
+                ? (0.92f - c.cooldown) / Math.max(0.02f, c.chargePerTick) <= 7.0f
                 : c.cooldown >= cfg.critLaunchPercent / 100f;
+
         // Retreat When Low: turn around and sprint away, but only for retreatSeconds (many servers have no healing), then turn
-        // back and fight. After that there is a cooldown before the next retreat so it cannot loop forever.
+        // back and fight. A cooldown follows so it cannot loop forever.
         boolean lowHp = cfg.retreatLow && c.health <= retreatHp;
         if (retreatCooldown > 0) retreatCooldown--;
         if (retreatLeft > 0) {
-            if (!lowHp) { retreatLeft = 0; snapTicks = 5; }                                   // healed: stop running
-            else if (--retreatLeft == 0) {                                                    // time is up: turn back
-                retreatCooldown = Math.max(0, cfg.retreatCooldownSeconds) * 20;
-                snapTicks = 5;
-            }
+            if (!lowHp) { retreatLeft = 0; snapTicks = 5; }
+            else if (--retreatLeft == 0) { retreatCooldown = Math.max(0, cfg.retreatCooldownSeconds) * 20; snapTicks = 5; }
         } else if (lowHp && retreatCooldown == 0) {
             retreatLeft = Math.max(1, cfg.retreatSeconds) * 20;
         }
@@ -140,15 +131,13 @@ public final class StrictController {
                 if (c.onGround && jumpCooldown == 0) { go = true; resetPending = 0; }
             }
             if (!go && cfg.jumpResetMode == JumpResetMode.PREDICT && c.onGround && jumpCooldown == 0
-                    && c.dist <= cfg.reach + 0.6 && (f.oppSwingEdge || (!c.tOnGround && c.tVelY < -0.12))) go = true;
+                    && c.dist <= cfg.reach + 0.6 && f.oppSwingEdge) go = true;
             if (go) { a.jump = true; jumpCooldown = 10; }
         }
 
         // Phase transitions
-        if (retreating) enter(Phase.NORMAL);
-        else if (phase == Phase.NORMAL && st == Strategy.NORMAL && !webbed && cfg.critSpamResponse && f.critSpam()) enter(Phase.RUN_BACK);
-        else if (phase == Phase.NORMAL && cfg.turnBack && !safe && !pin && !spamStrat && turnCooldown == 0 && c.dist < 1.6
-                && (++turnProbe % 10 == 0) && chance(cfg.turnBackChance, 5)) enter(Phase.TURN_BACK);
+        if (retreating) { if (phase != Phase.NORMAL) enter(Phase.NORMAL); }
+        else if (phase == Phase.NORMAL && st == Strategy.NORMAL && cfg.critSpamResponse && f.critSpam()) enter(Phase.RUN_BACK);
         phaseTicks++;
 
         switch (phase) {
@@ -166,138 +155,152 @@ public final class StrictController {
                 else if (phaseTicks > 40) enter(Phase.CRIT_PUNISH);
                 return a;
             }
-            case TURN_BACK -> {                       // whip 180, run about a block, snap back
-                critState = "paused: turn-back";
-                a.goalYaw = c.yawToTarget + 180f; a.fastAim = true;
-                a.forward = true; a.sprint = true;
-                if (phaseTicks >= 6) { enter(Phase.NORMAL); turnCooldown = 120; snapTicks = 4; }
-                return a;
-            }
             case CRIT_PUNISH -> {
                 if (phaseTicks >= cfg.punishTicks) { f.resetSpam(); enter(Phase.NORMAL); }
             }
             default -> { }
         }
 
-        // Movement
+        // ---- KB displacement: tick 1 flick 180 (below), tick 2 turn back, then the hit kbHitDelay ticks later ----
+        if (kbState != 0) {
+            kbTicks++;
+            critState = "kb displacement";
+            if (kbState == 2) {                                  // tick 2: turn back to the target
+                a.snapAim = true;
+                kbWait = Math.max(1, cfg.kbHitDelay);
+                kbState = 3;
+                return a;
+            }
+            if (--kbWait > 0) return a;                          // wait for the hit tick
+            if (inReach && look && clear && c.cooldown >= 0.85f) { a.attack = true; kbState = 0; critCooldown = 2; idleTicks = 0; return a; }
+            if (kbTicks > 8) kbState = 0;                        // could not line up: give up
+            return a;
+        }
+
+        // ---- Movement ----
         if (retreating) {
             a.goalYaw = c.yawToTarget + 180f; a.fastAim = true;       // face away and run
             a.forward = true; a.sprint = true;
-        }
-        else if (counter) { a.forward = true; a.sprint = true; }
-        else if (safe) {
+        } else if (counter) {
+            a.forward = true; a.sprint = true;
+        } else if (safe) {
             if (c.dist > engage + 0.4) a.forward = true;
             else if (c.dist < engage - 0.3) a.back = true;
-        }
-        else if (c.dist > engage) { a.forward = true; a.sprint = true; }
+        } else if (cfg.reachSpacing) {
+            if (soon || pendingCrit) {                                // about to swing: step in to the edge of reach
+                if (c.reachDist > hitDist - 0.05) { a.forward = true; a.sprint = true; }
+                else if (c.reachDist < hitDist - 0.7) a.back = true;
+            } else {                                                  // recharging: wait just outside their reach
+                if (c.reachDist < holdDist - 0.15) a.back = true;
+                else if (c.reachDist > holdDist + 0.5) { a.forward = true; a.sprint = true; }
+            }
+        } else if (c.dist > engage) { a.forward = true; a.sprint = true; }
         else { a.sprint = true; if (c.dist < minDist) a.back = true; else a.forward = true; }
 
-        // Taps after a hit. W: release W. S: release W, press S. Shift: sneak (forward stays held). Block-hit: raise the shield.
-        // In packet mode the W-tap is a sprint-reset packet sent with the hit instead of a key release.
-        if (uppercutTap > 0 && --uppercutTap == 0) { tapType = Tap.S; tapLeft = Math.max(1, cfg.sTapTicks); }
+        // Circle strafing: hold A or D (with W) so we orbit the opponent.
+        boolean circling = cfg.strafe && !counter && !retreating && c.dist < engage + (safe ? 2.0 : 2.6);
+        if (circling) {
+            strafe(a, cfg);
+            if (!a.back && c.reachDist > holdDist - 0.1) a.forward = true;
+        }
+
+        // Taps that start after the hit tick (W-tap, S-tap with one tick delay, later ticks of any tap)
+        if (tapDelay > 0 && --tapDelay == 0) tapLeft = Math.max(1, cfg.sTapTicks);
         if (tapLeft > 0) {
             tapLeft--;
             switch (tapType) {
-                case S -> { a.forward = false; a.sprint = false; a.stopSprint = true; a.back = true; }
+                case S -> { a.forward = false; a.sprint = false; a.stopSprint = true; a.back = true; a.left = false; a.right = false; }
                 case W -> { if (!pkt) { a.forward = false; a.sprint = false; a.stopSprint = true; } }
                 case SHIFT -> { a.sneak = true; a.sprint = false; a.stopSprint = true; }
-                case BLOCK -> { a.use = true; }
                 default -> { }
             }
         }
-        if (cfg.strafe && !counter && !pin && !webbed && !retreating && c.dist < engage + (safe ? 2.0 : 1.5)) strafe(a, cfg);
 
-        // Crosshair shake: flick away and back after a hit (decoys the opponent's tracking)
-        if (shakeLeft > 0) { shakeLeft--; if (shakeLeft >= 1) a.goalYaw += shakeSign * 28f; a.fastAim = true; }
-
-        // Attack
+        // ---- Attack ----
         boolean comboMode = phase == Phase.CRIT_PUNISH && punishCombo;
         boolean critAllowed = cfg.crit && cfg.jump && f.combo < comboLock && !counter && !comboMode;
         boolean mayAttack = !safe || counter || idleTicks > 60;
-        boolean sweepWanted = cfg.sweepDisrupt && c.nearbyOthers > 0 && !safe;
         boolean critHit = false, upHit = false;
 
-        // P-crit: hit them the moment they jump, before their crit can start
-        if (cfg.pCrit && !safe && !spamStrat && f.oppJumpEdge && c.onGround && !pendingCrit && inReach && look && clear && c.cooldown >= 0.85f) {
-            a.attack = true;
+        if (upAttackIn > 0 && --upAttackIn == 0) {                    // uppercut with the hit one tick after the jump
+            if (inReach && look && clear) { a.attack = true; upHit = true; }
         }
 
         if (!a.attack) {
             if (pendingCrit) {
                 pendingTicks++;
                 boolean airborne = !c.onGround;
-                boolean noSprintKind = kind == Jump.CRIT || kind == Jump.DELAYED_CRIT;
-                if (noSprintKind && airborne && c.velY < 0.15) {        // top of the jump: let go of W so the sprint ends before the hit
+                if (airborne && c.velY < 0.15) {                      // top of the jump: let go of W so the sprint ends before the hit
                     a.forward = false; a.sprint = false; a.stopSprint = true;
                 }
-                if (!noSprintKind) { a.forward = true; a.sprint = true; }
-                boolean timing = switch (kind) {
-                    case CRIT -> airborne && c.velY < 0 && c.fallDistance > 0.0 && !c.sprinting;
-                    case DELAYED_CRIT -> airborne && c.velY < 0 && c.fallDistance > 0.0 && !c.sprinting && (c.groundGap < 0.75 || pendingTicks > 12);
-                    case SPRINT_CUT -> airborne && c.velY <= 0.03 && c.velY > -0.25 && c.sprinting;   // the turn from rising to falling
-                };
-                if (timing && inReach && lookAir && clear && ready) {
-                    a.attack = true; pendingCrit = false; critCooldown = 2;
-                    if (noSprintKind) { critHit = true; critsFired++; }
+                boolean falling = airborne && c.velY < 0 && c.fallDistance > 0.0 && !c.sprinting;
+                if (falling && inReach && look && clear && ready) {
+                    a.attack = true; critHit = true; pendingCrit = false; critsFired++; critCooldown = 2;
                 } else if (pendingTicks > 16 || (c.onGround && pendingTicks > 2)) {
                     pendingCrit = false; critCooldown = spamStrat ? 6 : 25;   // failed: hit normally for a while
-                    if (phase == Phase.CRIT_PUNISH && ++punishFails >= 2) punishCombo = true;   // crit not working: switch to combo
+                    if (phase == Phase.CRIT_PUNISH && ++punishFails >= 2) punishCombo = true;
                 }
             } else {
                 // One roll per attack cycle. The jump may START below full charge so the falling hit is charged in time.
                 boolean cycleReady = critAllowed && critCooldown == 0 && jumpCooldown == 0 && c.onGround && mayAttack && aimed
-                        && c.reachDist <= reachUse + 0.8 && launchReady && clear;
+                        && c.reachDist <= hitDist + 0.8 && launchReady && clear;
                 if (cycleReady && !cycleRolled) { cycleRolled = true; cycleCrit = phase == Phase.CRIT_PUNISH || chance(critPct, 0); }
                 if (cycleReady && cycleCrit) {
-                    kind = spamStrat ? Jump.CRIT : pickJump(c, cfg);
                     a.jump = true; pendingCrit = true; pendingTicks = 0; jumpCooldown = 10; cycleCrit = false;
                 } else if (inReach && look && ready && mayAttack && clear) {
-                    if (cfg.uppercut && cfg.jump && !spamStrat && !safe && !counter && !retreating && c.onGround && jumpCooldown == 0
-                            && chance(cfg.uppercutChance, 7)) {
-                        a.jump = true; a.attack = true; jumpCooldown = 10;     // jump and hit on the same tick: launches them upward
-                        upHit = true; uppercutTap = Math.max(1, cfg.uppercutSTapDelay);
-                    } else if (cfg.delayedHit && !safe && !counter && c.reachDist < reachUse - 0.7 && spacingWait < 5) {
-                        spacingWait++;                             // step back a little and hit at max reach instead
-                        a.back = true; a.forward = false; a.sprint = false;
-                    } else if (sweepWanted && c.sprinting) {
-                        a.forward = false; a.sprint = false; a.stopSprint = true;   // sweep needs a non-sprint hit; swing next tick
+                    boolean uppercut = cfg.uppercut && cfg.jump && !spamStrat && !safe && !counter && !retreating && c.onGround
+                            && jumpCooldown == 0 && chance(cfg.uppercutChance, 7);
+                    boolean kbFlick = !uppercut && cfg.kbDisplace && !spamStrat && !safe && !counter && chance(cfg.kbDisplaceChance, 6);
+                    if (uppercut) {
+                        a.jump = true; jumpCooldown = 10; upSWait = Math.max(0, cfg.uppercutSTapDelay);
+                        if (cfg.uppercutHitDelay <= 0) { a.attack = true; upHit = true; }   // jump and hit on the same tick
+                        else upAttackIn = 1;                                                   // hit one tick after the jump
+                    } else if (kbFlick) {
+                        kbState = 2; kbTicks = 0;                                  // tick 1 is this one: the flick
+                        a.goalYaw = c.yawToTarget + 180f; a.snapAim = true;                   // flick now, turn back next tick
+                        a.forward = false; a.back = false; a.left = false; a.right = false; a.sprint = false;
+                        critState = "kb displacement";
+                        return a;
                     } else {
-                        if (smart && attackDelay < 0) attackDelay = rng.nextInt(3);
+                        if (smart && cfg.reactionJitter > 0 && attackDelay < 0) attackDelay = rng.nextInt(cfg.reactionJitter + 1);
                         if (smart && attackDelay-- > 0) {
-                            // human-like hesitation
+                            // human-like hesitation (off by default: reaction jitter 0)
                         } else {
                             attackDelay = -1;
-                            a.attack = true;
+                            a.attack = true;                       // first tick the swing is possible: no extra delay
                         }
                     }
-                } else { attackDelay = -1; spacingWait = 0; }
+                } else attackDelay = -1;
             }
         }
 
-        if (a.attack) { idleTicks = 0; cycleRolled = false; cycleCrit = false; spacingWait = 0; }
+        if (a.attack) { idleTicks = 0; cycleRolled = false; cycleCrit = false; }
 
-        // What follows a normal hit
+        // Uppercut: S is pressed upSWait ticks after the jump (0 = at the same time as the jump)
+        if (upSWait == 0) { tapType = Tap.S; tapLeft = Math.max(1, cfg.sTapTicks); a.back = true; a.forward = false; a.sprint = false; upSWait = -1; }
+        else if (upSWait > 0) upSWait--;
+
+        // What follows a normal hit. The tap starts on the SAME tick as the hit (S-tap can be delayed one tick).
+        // The sprint is cancelled only after the click has been processed, so the hit itself is still a sprint hit.
         if (a.attack && !critHit && !upHit) {
             if (safe) { tapType = Tap.S; tapLeft = Math.max(2, cfg.sTapTicks); counterTicks = 0; }   // counter, then back off
             else if (!spamStrat) {
                 Tap pick = Tap.NONE;
-                if (!pin) {
-                    boolean otherTaps = cfg.wTap || cfg.shiftTap || (cfg.blockHit && c.offhandShield);
-                    if (cfg.sTap && c.dist <= cfg.sTapMaxDist && (!otherTaps || chance(cfg.sTapChance, 1))) pick = Tap.S;
-                    else if (cfg.shiftTap && chance(cfg.shiftTapChance, 2)) pick = Tap.SHIFT;
-                    else if (cfg.blockHit && c.offhandShield && chance(cfg.blockHitChance, 3)) pick = Tap.BLOCK;
-                }
+                boolean otherTaps = cfg.wTap || cfg.shiftTap;
+                if (cfg.sTap && c.dist <= cfg.sTapMaxDist && (!otherTaps || chance(cfg.sTapChance, 1))) pick = Tap.S;
+                else if (cfg.shiftTap && chance(cfg.shiftTapChance, 2)) pick = Tap.SHIFT;
                 if (pick == Tap.NONE && cfg.wTap) pick = Tap.W;
                 tapType = pick;
-                tapLeft = switch (pick) {
-                    case S -> Math.max(1, cfg.sTapTicks);
-                    case SHIFT -> Math.max(1, cfg.shiftTapTicks);
-                    case BLOCK -> Math.max(1, cfg.blockHitTicks);
-                    case W -> Math.max(1, cfg.wTapTicks);
-                    default -> 0;
-                };
+                switch (pick) {
+                    case S -> {
+                        if (cfg.sTapDelay <= 0) { a.back = true; a.forward = false; tapLeft = Math.max(0, cfg.sTapTicks - 1); }
+                        else { tapDelay = cfg.sTapDelay; tapLeft = 0; }
+                    }
+                    case SHIFT -> { a.sneak = true; tapLeft = Math.max(0, cfg.shiftTapTicks - 1); }
+                    case W -> tapLeft = Math.max(1, cfg.wTapTicks);
+                    default -> tapLeft = 0;
+                }
             }
-            if (cfg.crosshairShake && chance(30, 6)) { shakeLeft = 3; shakeSign = smart ? (rng.nextBoolean() ? 1 : -1) : -shakeSign; }
         }
 
         // SAFE: keep the shield up while waiting
@@ -305,22 +308,14 @@ public final class StrictController {
 
         critState = !(cfg.crit && cfg.jump) ? "off (Crit/Jump toggle)"
                 : retreating ? "retreating (" + (retreatLeft / 20 + 1) + "s)"
-                : webbed ? "web: crit spam"
                 : comboMode ? "response: combo"
                 : f.combo >= comboLock ? "combo lock (" + f.combo + ")"
                 : counter ? "counter window"
-                : pendingCrit ? "in the air (" + kind.name().toLowerCase().replace('_', ' ') + ")"
+                : pendingCrit ? "in the air"
                 : critCooldown > 0 ? "retry in " + critCooldown
                 : blockHold ? "opponent blocking"
                 : launchReady ? "armed" : "charging " + (int) (c.cooldown * 100) + "%";
         return a;
-    }
-
-    private Jump pickJump(Ctx c, ModConfig cfg) {
-        boolean charged = c.cooldown >= 0.85f;
-        if (cfg.sprintCut && charged && chance(cfg.sprintCutChance, 4)) return Jump.SPRINT_CUT;
-        if (cfg.delayedCrit && chance(cfg.delayedCritChance, 8)) return Jump.DELAYED_CRIT;
-        return Jump.CRIT;
     }
 
     /** Strict: every Nth time (first one fires). Smart: random. */
@@ -333,14 +328,8 @@ public final class StrictController {
     }
 
     private void strafe(Action a, ModConfig cfg) {
-        StrafeStyle style = cfg.strafeStyle;
-        if (style == StrafeStyle.MIXED) style = ((styleTick++ / 90) % 2 == 0) ? StrafeStyle.CIRCLE : StrafeStyle.JITTER;
-        int period = switch (style) {
-            case CIRCLE -> Math.max(10, cfg.circleTicks);      // long runs: orbit the opponent
-            case JITTER -> Math.max(1, cfg.jitterTicks);       // rapid A/D taps
-            default -> cfg.strafePeriodTicks;
-        };
-        if (smart && style != StrafeStyle.JITTER) period += rng.nextInt(3);
+        int period = Math.max(6, cfg.circleTicks);
+        if (smart) period += rng.nextInt(5);
         if (++strafeTick >= period) { strafeTick = 0; strafeRight = !strafeRight; }
         a.right = strafeRight; a.left = !strafeRight;
     }

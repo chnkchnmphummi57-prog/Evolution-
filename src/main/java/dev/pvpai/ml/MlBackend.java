@@ -35,6 +35,20 @@ public final class MlBackend {
 
     public boolean ready() { return ready; }
 
+    private long stamp = Long.MIN_VALUE;
+    private int pollTick;
+
+    /** Call every tick. Every ~2 seconds it checks model.json and reloads it if it changed (so training needs no clicks). */
+    public void poll() {
+        if (++pollTick < 40) return;
+        pollTick = 0;
+        try {
+            Path p = modelFile();
+            long m = Files.exists(p) ? Files.getLastModifiedTime(p).toMillis() : -1L;
+            if (m != stamp) { stamp = m; load(); }
+        } catch (java.io.IOException ignored) { }
+    }
+
     public static Path modelFile() {
         return FabricLoader.getInstance().getConfigDir().resolve("evolution").resolve("model.json");
     }

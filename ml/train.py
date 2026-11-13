@@ -5,8 +5,11 @@ Behaviour-cloning trainer for the Evolution mod. NumPy only (no PyTorch needed).
 Reads the CSV demos the mod records (config/evolution/demos/*.csv), trains a small MLP to imitate the recorded
 actions, and writes model.json for the mod's pure-Java inference backend.
 
+    python train.py                           # finds your Minecraft folder, trains, writes config/evolution/model.json
     python train.py --demos path/to/demos --out model.json
-    python train.py --synthetic 30000        # self-test with generated data, no game needed
+    python train.py --synthetic 30000 --demos ./test   # self-test with generated data, no game needed
+
+The mod reloads model.json by itself within a couple of seconds, so there is nothing to copy or click.
 
 Row layout (must match the mod): OBS_SIZE observation floats, then 10 action floats:
   forward, back, left, right, jump, sprint, attack, use   (0/1)   -> trained with weighted binary cross-entropy
@@ -195,10 +198,47 @@ def java_style_forward(path, obs_row):
     return x
 
 
+def find_evolution_dirs():
+    """Every .../config/evolution folder that has a demos folder with CSV files, newest first."""
+    home = os.path.expanduser("~")
+    appdata = os.environ.get("APPDATA", "")
+    roots = [os.environ.get("EVOLUTION_DIR", ""),
+             os.path.join(appdata, ".minecraft", "config", "evolution"),
+             os.path.join(home, ".minecraft", "config", "evolution"),
+             os.path.join(home, "Library", "Application Support", "minecraft", "config", "evolution")]
+    patterns = [
+        os.path.join(appdata, "PrismLauncher", "instances", "*", ".minecraft", "config", "evolution"),
+        os.path.join(appdata, "PrismLauncher", "instances", "*", "minecraft", "config", "evolution"),
+        os.path.join(home, ".local", "share", "PrismLauncher", "instances", "*", ".minecraft", "config", "evolution"),
+        os.path.join(home, ".local", "share", "PrismLauncher", "instances", "*", "minecraft", "config", "evolution"),
+        os.path.join(home, "curseforge", "minecraft", "Instances", "*", "config", "evolution"),
+        os.path.join(home, "Documents", "curseforge", "minecraft", "Instances", "*", "config", "evolution"),
+        os.path.join(appdata, "ModrinthApp", "profiles", "*", "config", "evolution"),
+        os.path.join(appdata, "gdlauncher_next", "instances", "*", "config", "evolution"),
+        os.path.join("*", "config", "evolution"),
+        os.path.join("config", "evolution"),
+    ]
+    for pat in patterns:
+        roots.extend(glob.glob(pat))
+    found = []
+    for r in roots:
+        if r and os.path.isdir(os.path.join(r, "demos")):
+            csvs = glob.glob(os.path.join(r, "demos", "*.csv"))
+            if csvs:
+                found.append((max(os.path.getmtime(c) for c in csvs), os.path.abspath(r)))
+    found.sort(reverse=True)
+    seen, out = set(), []
+    for _, r in found:
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--demos", default="demos", help="folder with the recorded .csv files")
-    ap.add_argument("--out", default="model.json")
+    ap.add_argument("--demos", default=None, help="folder with the recorded .csv files (default: found automatically)")
+    ap.add_argument("--out", default=None, help="where to write model.json (default: next to the demos folder, where the mod looks)")
     ap.add_argument("--hidden", default="128,128", help="hidden layer sizes, comma separated")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=256)
@@ -208,7 +248,21 @@ def main():
     args = ap.parse_args()
 
     if args.synthetic:
+        args.demos = args.demos or "demos_test"
         print("wrote", make_synthetic(args.demos, args.synthetic, seed=args.seed))
+    if args.demos is None:
+        dirs = find_evolution_dirs()
+        if not dirs:
+            sys.exit("Could not find recorded demos.\n"
+                     "  1. In the game: Evolution menu > ML > Record Demos, and let Strict or Smart fight for a while.\n"
+                     "  2. Run this again. If it still cannot find them, use:  python train.py --demos \"<folder from 'Copy folder path'>\"")
+        args.demos = os.path.join(dirs[0], "demos")
+        print("using demos from", args.demos)
+        if len(dirs) > 1:
+            print("(other Minecraft folders with demos were found; this is the most recent one. Use --demos to pick another.)")
+    if args.out is None:
+        parent = os.path.dirname(os.path.abspath(args.demos.rstrip("/\\")))
+        args.out = os.path.join(parent, "model.json") if os.path.basename(os.path.abspath(args.demos)) == "demos" else "model.json"
 
     x, y, files = load_demos(args.demos)
     obs_size = x.shape[1]
@@ -276,7 +330,8 @@ def main():
     print(f"\nexported {args.out}  (export round-trip max difference {worst:.2e})")
     if worst > 1e-3:
         sys.exit("export check failed")
-    print("copy it to  <minecraft>/config/evolution/model.json  and press 'Reload model' in the mod's ML tab.")
+    print("done. If it was written into your Minecraft config/evolution folder the mod loads it by itself within a few seconds.")
+    print("Then set Mode to ML in the Evolution menu (Combat > Evolution AI).")
 
 
 if __name__ == "__main__":

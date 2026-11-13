@@ -9,6 +9,7 @@ import dev.pvpai.ml.MlBackend;
 import dev.pvpai.ml.Recorder;
 import dev.pvpai.ui.HudOverlay;
 import dev.pvpai.ui.PvpAiScreen;
+import dev.pvpai.ui.Watermark;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -33,7 +34,7 @@ public final class PvpAiClient implements ClientModInitializer {
             if (mc.currentScreen == null && mc.player != null) {
                 if (toggle) {
                     if (!cfg.enabled && !ScopeGate.allowed(mc)) {
-                        mc.player.sendMessage(Text.literal("[PvP AI] Blocked: only singleplayer or allowlisted servers."), true);
+                        mc.player.sendMessage(Text.literal("[Evolution] Blocked: only singleplayer or allowlisted servers."), true);
                     } else {
                         cfg.enabled = !cfg.enabled;
                     }
@@ -41,10 +42,11 @@ public final class PvpAiClient implements ClientModInitializer {
                 if (hud) {
                     cfg.hudVisible = !cfg.hudVisible;
                     ModConfig.save();
-                    mc.player.sendMessage(Text.literal("[PvP AI] HUD " + (cfg.hudVisible ? "shown" : "hidden")), true);
+                    mc.player.sendMessage(Text.literal("[Evolution] HUD " + (cfg.hudVisible ? "shown" : "hidden")), true);
                 }
                 if (menu) mc.setScreen(new PvpAiScreen(null));
             }
+            MlBackend.INSTANCE.poll();
             if (mc.player != null && mc.world != null) AiController.INSTANCE.tick(mc);
         });
 
@@ -53,5 +55,6 @@ public final class PvpAiClient implements ClientModInitializer {
         ClientLifecycleEvents.CLIENT_STOPPING.register(c -> Recorder.INSTANCE.close());
 
         HudRenderCallback.EVENT.register(HudOverlay::render);
+        HudRenderCallback.EVENT.register(Watermark::render);
     }
 }

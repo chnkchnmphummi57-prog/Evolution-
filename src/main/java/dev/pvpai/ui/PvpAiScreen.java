@@ -1,161 +1,86 @@
 package dev.pvpai.ui;
 
-import dev.pvpai.config.HotKey;
-import dev.pvpai.config.HudCorner;
-import dev.pvpai.config.InputMode;
-import dev.pvpai.config.JumpInput;
-import dev.pvpai.config.JumpResetMode;
-import dev.pvpai.config.Kit;
 import dev.pvpai.config.ModConfig;
-import dev.pvpai.config.StrafeStyle;
-import dev.pvpai.config.Strategy;
-import dev.pvpai.ml.MlBackend;
-import dev.pvpai.ml.Recorder;
-import dev.pvpai.core.AiMode;
-import dev.pvpai.core.ScopeGate;
+import dev.pvpai.ui.Modules.Cat;
+import dev.pvpai.ui.Modules.Kind;
+import dev.pvpai.ui.Modules.Module;
+import dev.pvpai.ui.Modules.Setting;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.SliderWidget;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import org.lwjgl.glfw.GLFW;
 
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.IntConsumer;
-import java.util.function.Supplier;
+import java.util.ArrayList;
+import java.util.List;
 
-/** Quick control panel. The full settings screen (YACL) is under "Advanced". */
+/**
+ * Evolution menu. Categories on the left, a module list in the middle with a switch per module,
+ * right-click a module for its settings. Immediate-mode: everything is drawn and hit-tested right here each frame, and the mouse
+ * buttons are read straight from GLFW, so nothing depends on version-specific widget or click APIs.
+ * Only the two text boxes (search, watermark text) are vanilla widgets, because typing needs them.
+ */
 public final class PvpAiScreen extends Screen {
-    private enum Tab {
-        HOME("Home"), MOVES("Moves"), COMBAT("Combat"), INPUT("Input"), MODERN("Modern"), TECH("Tech"), ML("ML");
-        final String label;
-        Tab(String label) { this.label = label; }
-    }
-
-    private static final int PW = 344, PH = 226;
-    private static final int BG = 0xF00D1117, BORDER = 0x40FFFFFF, TEXT = 0xFFE6EDF3, DIM = 0xFF8B949E, GREEN = 0xFF3DDC84;
+    private static final int RH = 24, SRH = 27, SW = 106;
+    private static final Cat[] TOP = {Cat.COMBAT, Cat.MOVEMENT, Cat.MODERN, Cat.MACE, Cat.VISUAL};
+    private static final Cat[] GEN = {Cat.ML, Cat.SETTINGS};
 
     private final Screen parent;
-    private Tab tab = Tab.HOME;
-    private int px, py;
+    private List<Module> modules = new ArrayList<>();
+    private Cat cat = Cat.COMBAT;
+    private Module open;
+    private int scroll;
+    private String search = "";
+    private TextFieldWidget searchField, textField;
+    private Setting textSetting, dragging;
+    private boolean wasL, wasR, dragScroll;
+    private int px, py, pw, ph, cx, cw;
 
     public PvpAiScreen(Screen parent) {
-        super(Text.literal("PvP AI"));
+        super(Text.literal("Evolution"));
         this.parent = parent;
     }
+
+    // ------------------------------------------------------------------ setup
 
     @Override
     protected void init() {
         clearChildren();
-        px = (width - PW) / 2;
-        py = (height - PH) / 2;
         ModConfig cfg = ModConfig.get();
+        String openName = open == null ? null : open.name;
+        modules = Modules.build(cfg, () -> client.setScreen(YaclScreenFactory.create(this)));
+        open = null;
+        if (openName != null) for (Module m : modules) if (m.name.equals(openName)) open = m;
 
-        int tx = px + 14;
-        for (Tab t : Tab.values()) {
-            int tw = textRenderer.getWidth(t.label) + 14;
-            addDrawableChild(ButtonWidget.builder(Text.literal(t == tab ? "> " + t.label : t.label), btn -> { tab = t; init(); })
-                    .dimensions(tx, py + 30, tw, 18).build());
-            tx += tw + 3;
-        }
+        pw = Math.min(460, width - 8);
+        ph = Math.min(264, height - 8);
+        px = (width - pw) / 2;
+        py = (height - ph) / 2;
+        cx = px + SW + 14;
+        cw = pw - SW - 28;
 
-        int x = px + 14, y = py + 60, w = 150, gap = 22, x2 = px + PW - 14 - w;
-        switch (tab) {
-            case HOME -> {
-                addDrawableChild(toggle(x, y, w, "AI", () -> cfg.enabled, v -> {
-                    if (v && !ScopeGate.allowed(client)) {
-                        if (client.player != null) client.player.sendMessage(Text.literal("[PvP AI] Blocked: singleplayer or allowlisted servers only."), true);
-                    } else cfg.enabled = v;
-                }));
-                addDrawableChild(cycle(x, y + gap, w, "Mode", AiMode.values(), () -> cfg.mode, v -> cfg.mode = v, m -> m.label));
-                addDrawableChild(cycle(x, y + gap * 2, w, "Strategy", Strategy.values(), () -> cfg.strategy, v -> cfg.strategy = v, m -> m.label));
-                addDrawableChild(cycle(x, y + gap * 3, w, "Kit", Kit.values(), () -> cfg.kit, v -> cfg.kit = v, m -> m.label));
-                addDrawableChild(toggle(x, y + gap * 4, w, "HUD", () -> cfg.hudVisible, v -> cfg.hudVisible = v));
-                addDrawableChild(cycle(x, y + gap * 5, w, "HUD corner", HudCorner.values(), () -> cfg.hudCorner, v -> cfg.hudCorner = v, m -> m.label));
-            }
-            case MOVES -> {
-                addDrawableChild(toggle(x, y, w, "Jump", () -> cfg.jump, v -> cfg.jump = v));
-                addDrawableChild(toggle(x, y + gap, w, "Crit", () -> cfg.crit, v -> cfg.crit = v));
-                addDrawableChild(toggle(x, y + gap * 2, w, "Jump Reset", () -> cfg.jumpReset, v -> cfg.jumpReset = v));
-                addDrawableChild(toggle(x2, y, w, "Strafing", () -> cfg.strafe, v -> cfg.strafe = v));
-                addDrawableChild(toggle(x2, y + gap, w, "Retreat When Low", () -> cfg.retreatLow, v -> cfg.retreatLow = v));
-                addDrawableChild(toggle(x2, y + gap * 2, w, "W-Tap", () -> cfg.wTap, v -> cfg.wTap = v));
-                addDrawableChild(toggle(x2, y + gap * 3, w, "S-Tap", () -> cfg.sTap, v -> cfg.sTap = v));
-                addDrawableChild(cycle(x, y + gap * 3, w, "Reset mode", JumpResetMode.values(), () -> cfg.jumpResetMode, v -> cfg.jumpResetMode = v, m -> m.label));
-                addDrawableChild(new IntSlider(x2, y + gap * 4, w, "Retreat for", 1, 30, cfg.retreatSeconds, " s", v -> cfg.retreatSeconds = v));
-                addDrawableChild(new IntSlider(x2, y + gap * 5, w, "Retreat cooldown", 0, 60, cfg.retreatCooldownSeconds, " s", v -> cfg.retreatCooldownSeconds = v));
-                addDrawableChild(toggle(x, y + gap * 4, w, "Hard-mask disabled moves", () -> cfg.strictEnforcement, v -> cfg.strictEnforcement = v));
-            }
-            case COMBAT -> {
-                addDrawableChild(new IntSlider(x, y, w, "Crit chance", 0, 100, cfg.critChancePercent, "%", v -> cfg.critChancePercent = v));
-                addDrawableChild(new IntSlider(x, y + gap, w, "Combo lock", 1, 15, cfg.comboLock, " hits", v -> cfg.comboLock = v));
-                addDrawableChild(new IntSlider(x, y + gap * 2, w, "Retreat HP", 1, 19, (int) cfg.retreatHealth, "", v -> cfg.retreatHealth = v));
-                addDrawableChild(new IntSlider(x, y + gap * 3, w, "Strafe period", 4, 40, cfg.strafePeriodTicks, " ticks", v -> cfg.strafePeriodTicks = v));
-                addDrawableChild(toggle(x2, y, w, "Crit-spam response", () -> cfg.critSpamResponse, v -> cfg.critSpamResponse = v));
-                addDrawableChild(new IntSlider(x2, y + gap, w, "Run-back", 3, 30, cfg.runBackTicks, " ticks", v -> cfg.runBackTicks = v));
-                addDrawableChild(new IntSlider(x2, y + gap * 2, w, "Punish window", 20, 400, cfg.punishTicks, " ticks", v -> cfg.punishTicks = v));
-                addDrawableChild(new IntSlider(x2, y + gap * 3, w, "W-tap length", 1, 6, cfg.wTapTicks, " ticks", v -> cfg.wTapTicks = v));
-                addDrawableChild(new IntSlider(x, y + gap * 4, w, "S-tap length", 1, 8, cfg.sTapTicks, " ticks", v -> cfg.sTapTicks = v));
-                addDrawableChild(new IntSlider(x2, y + gap * 4, w, "S-tap chance", 0, 100, cfg.sTapChance, "%", v -> cfg.sTapChance = v));
-                addDrawableChild(new IntSlider(x, y + gap * 5, w, "Crit jump at", 30, 100, cfg.critLaunchPercent, "%", v -> cfg.critLaunchPercent = v));
-                addDrawableChild(new IntSlider(x2, y + gap * 5, w, "Crit priority", 0, 100, cfg.critResponsePriority, "%", v -> cfg.critResponsePriority = v));
-            }
-            case INPUT -> {
-                addDrawableChild(cycle(x, y, w, "Input", InputMode.values(), () -> cfg.inputMode, v -> cfg.inputMode = v, m -> m.label));
-                addDrawableChild(new IntSlider(x, y + gap, w, "Camera smoothness", 0, 100, cfg.cameraSmoothness, "", v -> cfg.cameraSmoothness = v));
-                addDrawableChild(new IntSlider(x, y + gap * 2, w, "Max turn", 2, 60, cfg.maxTurnDegPerTick, " deg/tick", v -> cfg.maxTurnDegPerTick = v));
-                addDrawableChild(cycle(x, y + gap * 3, w, "Jump input", JumpInput.values(), () -> cfg.jumpInput, v -> cfg.jumpInput = v, m -> m.label));
-                addDrawableChild(cycle(x2, y, w, "Menu key", HotKey.values(), () -> cfg.menuKey, v -> cfg.menuKey = v, k -> k.label));
-                addDrawableChild(cycle(x2, y + gap, w, "Toggle AI key", HotKey.values(), () -> cfg.toggleKey, v -> cfg.toggleKey = v, k -> k.label));
-                addDrawableChild(cycle(x2, y + gap * 2, w, "Toggle HUD key", HotKey.values(), () -> cfg.hudKey, v -> cfg.hudKey = v, k -> k.label));
-            }
-            case MODERN -> {
-                addDrawableChild(toggle(x, y, w, "Shield break", () -> cfg.shieldBreak, v -> cfg.shieldBreak = v));
-                addDrawableChild(new IntSlider(x, y + gap, w, "Wait at least", 5, 200, cfg.shieldDelayMin, " ticks", v -> cfg.shieldDelayMin = v));
-                addDrawableChild(new IntSlider(x, y + gap * 2, w, "Wait at most", 5, 200, cfg.shieldDelayMax, " ticks", v -> cfg.shieldDelayMax = v));
-                addDrawableChild(new IntSlider(x, y + gap * 3, w, "Smart fail chance", 0, 100, cfg.shieldFailChance, "%", v -> cfg.shieldFailChance = v));
-                addDrawableChild(toggle(x2, y, w, "Auto-totem", () -> cfg.autoTotem, v -> cfg.autoTotem = v));
-                addDrawableChild(new IntSlider(x2, y + gap, w, "Totem below", 2, 19, cfg.totemHealth, " HP", v -> cfg.totemHealth = v));
-                addDrawableChild(toggle(x2, y + gap * 2, w, "Auto-eat", () -> cfg.autoEat, v -> cfg.autoEat = v));
-                addDrawableChild(new IntSlider(x2, y + gap * 3, w, "Eat below", 2, 19, cfg.eatHealth, " HP", v -> cfg.eatHealth = v));
-                addDrawableChild(toggle(x, y + gap * 4, w, "Safe: raise shield", () -> cfg.safeBlock, v -> cfg.safeBlock = v));
-                addDrawableChild(toggle(x2, y + gap * 4, w, "Healing pots", () -> cfg.healPots, v -> cfg.healPots = v));
-                addDrawableChild(new IntSlider(x, y + gap * 5, w, "Pot below", 2, 19, cfg.potHealth, " HP", v -> cfg.potHealth = v));
-                addDrawableChild(toggle(x2, y + gap * 5, w, "Wind charge (mace)", () -> cfg.useWindCharge, v -> cfg.useWindCharge = v));
-            }
-            case TECH -> {
-                int cw = 100, c1 = px + 14, c2 = c1 + 105, c3 = c2 + 105;
-                addDrawableChild(toggle(c1, y, cw, "Shift-tap", () -> cfg.shiftTap, v -> cfg.shiftTap = v));
-                addDrawableChild(toggle(c2, y, cw, "Block-hit", () -> cfg.blockHit, v -> cfg.blockHit = v));
-                addDrawableChild(toggle(c3, y, cw, "Corner hit", () -> cfg.cornerHit, v -> cfg.cornerHit = v));
-                addDrawableChild(toggle(c1, y + gap, cw, "Delayed hit", () -> cfg.delayedHit, v -> cfg.delayedHit = v));
-                addDrawableChild(toggle(c2, y + gap, cw, "Wall-pin", () -> cfg.wallPin, v -> cfg.wallPin = v));
-                addDrawableChild(toggle(c3, y + gap, cw, "Turn-back", () -> cfg.turnBack, v -> cfg.turnBack = v));
-                addDrawableChild(toggle(c1, y + gap * 2, cw, "Hit-select", () -> cfg.hitSelect, v -> cfg.hitSelect = v));
-                addDrawableChild(toggle(c2, y + gap * 2, cw, "P-crit", () -> cfg.pCrit, v -> cfg.pCrit = v));
-                addDrawableChild(toggle(c3, y + gap * 2, cw, "Sprint-cut", () -> cfg.sprintCut, v -> cfg.sprintCut = v));
-                addDrawableChild(toggle(c1, y + gap * 3, cw, "Uppercut", () -> cfg.uppercut, v -> cfg.uppercut = v));
-                addDrawableChild(toggle(c2, y + gap * 3, cw, "Delayed crit", () -> cfg.delayedCrit, v -> cfg.delayedCrit = v));
-                addDrawableChild(toggle(c3, y + gap * 3, cw, "Shake", () -> cfg.crosshairShake, v -> cfg.crosshairShake = v));
-                addDrawableChild(toggle(c1, y + gap * 4, cw, "Auto web", () -> cfg.autoWeb, v -> cfg.autoWeb = v));
-                addDrawableChild(toggle(c2, y + gap * 4, cw, "Web crit", () -> cfg.webSpamCrit, v -> cfg.webSpamCrit = v));
-                addDrawableChild(cycle(c3, y + gap * 4, cw, "Strafe", StrafeStyle.values(), () -> cfg.strafeStyle, v -> cfg.strafeStyle = v, m -> m.label));
-                addDrawableChild(toggle(c1, y + gap * 5, cw, "Aim gate", () -> cfg.requireCrosshair, v -> cfg.requireCrosshair = v));
-                addDrawableChild(toggle(c2, y + gap * 5, cw, "Hurt guard", () -> cfg.hurtGuard, v -> cfg.hurtGuard = v));
-                addDrawableChild(toggle(c3, y + gap * 5, cw, "Attr swap", () -> cfg.attributeSwap, v -> cfg.attributeSwap = v));
-            }
-            case ML -> {
-                addDrawableChild(toggle(x, y, w, "Record demos", () -> cfg.recordDemos, v -> cfg.recordDemos = v));
-                addDrawableChild(ButtonWidget.builder(Text.literal("Reload model"), b -> MlBackend.INSTANCE.load())
-                        .dimensions(x, y + gap, w, 18).build());
-            }
-        }
+        searchField = new TextFieldWidget(textRenderer, cx + cw - 138, py + 14, 116, 10, Text.literal("Search"));
+        searchField.setDrawsBackground(false);
+        searchField.setMaxLength(24);
+        searchField.setText(search);
+        searchField.setChangedListener(s -> { search = s; scroll = 0; });
+        addDrawableChild(searchField);
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Advanced (YACL)"), b -> client.setScreen(YaclScreenFactory.create(this)))
-                .dimensions(px + 14, py + PH - 28, 110, 18).build());
-        addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> close())
-                .dimensions(px + PW - 74, py + PH - 28, 60, 18).build());
+        textField = new TextFieldWidget(textRenderer, 0, 0, 110, 10, Text.literal("Text"));
+        textField.setDrawsBackground(false);
+        textField.setMaxLength(24);
+        textField.setChangedListener(s -> { if (textSetting != null && textSetting.setS != null) textSetting.setS.accept(s); });
+        textField.visible = false;
+        addDrawableChild(textField);
+
+        wasL = down(GLFW.GLFW_MOUSE_BUTTON_LEFT);     // a button already held when the menu opens must not click anything
+        wasR = down(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+    }
+
+    private boolean down(int button) {
+        return GLFW.glfwGetMouseButton(client.getWindow().getHandle(), button) == GLFW.GLFW_PRESS;
     }
 
     @Override
@@ -164,94 +89,243 @@ public final class PvpAiScreen extends Screen {
         client.setScreen(parent);
     }
 
-    /** Everything that sits behind the widgets is drawn here so nothing can cover them. */
+    /** Nothing here: render() draws the whole menu (this also prevents the vanilla blur). */
     @Override
-    public void renderBackground(DrawContext g, int mouseX, int mouseY, float delta) {
+    public void renderBackground(DrawContext g, int mouseX, int mouseY, float delta) { }
+
+    /** Mouse wheel scrolls the list (also reachable by dragging the scrollbar). */
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        scroll -= (int) Math.signum(verticalAmount);
+        return true;
+    }
+
+    private List<Module> visible() {
+        List<Module> out = new ArrayList<>();
+        String q = search.trim().toLowerCase();
+        for (Module m : modules) {
+            if (q.isEmpty() ? m.cat == cat : (m.name.toLowerCase().contains(q) || m.desc.toLowerCase().contains(q))) out.add(m);
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------------ frame
+
+    @Override
+    public void render(DrawContext g, int mx, int my, float delta) {
         ModConfig cfg = ModConfig.get();
-        g.fill(0, 0, width, height, 0x90000000);
-        g.fill(px + 1, py, px + PW - 1, py + PH, BG);
-        g.fill(px, py + 1, px + PW, py + PH - 1, BG);
-        g.fill(px + 1, py, px + PW - 1, py + 1, BORDER);
-        g.fill(px + 1, py + PH - 1, px + PW - 1, py + PH, BORDER);
-        g.fill(px, py + 1, px + 1, py + PH - 1, BORDER);
-        g.fill(px + PW - 1, py + 1, px + PW, py + PH - 1, BORDER);
-        g.fill(px + 2, py, px + PW - 2, py + 2, cfg.enabled ? GREEN : 0xFF6B7280);
+        int ac = Theme.accent(cfg);
+        boolean l = down(GLFW.GLFW_MOUSE_BUTTON_LEFT), r = down(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+        boolean cl = l && !wasL, cr = r && !wasR;
+        wasL = l; wasR = r;
+        if (!l) { dragging = null; dragScroll = false; }
 
-        g.drawText(textRenderer, "PvP AI", px + 14, py + 12, TEXT, true);
-        String sub = (cfg.enabled ? "ON" : "OFF") + "  |  " + cfg.mode.label + "  |  " + cfg.strategy.label + "  |  " + cfg.kit.label;
-        g.drawText(textRenderer, sub, px + PW - 14 - textRenderer.getWidth(sub), py + 12, cfg.enabled ? GREEN : DIM, false);
+        g.fill(0, 0, width, height, 0xB0050612);
+        Theme.rounded(g, px, py, pw, ph, 8, Theme.STROKE);
+        Theme.rounded(g, px + 1, py + 1, pw - 2, ph - 2, 7, Theme.BG);
+        Theme.rounded(g, px + 1, py + 1, SW, ph - 2, 7, Theme.SIDEBAR);
+        g.fill(px + SW - 6, py + 1, px + SW, py + ph - 1, Theme.SIDEBAR);
+        g.fill(px + SW, py + 10, px + SW + 1, py + ph - 10, Theme.STROKE);
+        Theme.rounded(g, px + SW + 12, py + 1, pw - SW - 24, 2, 1, ac);
 
-        int tx = px + 14, ty = py + 60, noteY = py + PH - 46;
-        switch (tab) {
-            case HOME -> {
-                int rx = px + 186;
-                g.drawText(textRenderer, "Scope: " + ScopeGate.describe(client), rx, ty, DIM, false);
-                g.drawText(textRenderer, "Keys", rx, ty + 20, TEXT, false);
-                g.drawText(textRenderer, cfg.toggleKey.label + "  toggle AI", rx, ty + 32, DIM, false);
-                g.drawText(textRenderer, cfg.hudKey.label + "  toggle HUD", rx, ty + 43, DIM, false);
-                g.drawText(textRenderer, cfg.menuKey.label + "  this menu", rx, ty + 54, DIM, false);
-                g.drawText(textRenderer, "Change keys on the Input tab.", rx, ty + 76, DIM, false);
-                g.drawText(textRenderer, "Live stats are on the HUD.", rx, ty + 87, DIM, false);
-            }
-            case MOVES -> g.drawText(textRenderer, "Hard mask: disabled moves are never used.", tx, noteY, DIM, false);
-            case COMBAT -> { }
-            case INPUT -> {
-                g.drawText(textRenderer, "Packets: hits and sprint resets go as packets.", tx, ty + 90, DIM, false);
-                g.drawText(textRenderer, "Movement stays on keys. Scope gate applies.", tx, ty + 101, DIM, false);
-                g.drawText(textRenderer, "Direct jump = jump physics without the key.", tx, ty + 112, DIM, false);
-            }
-            case MODERN -> { }
-            case TECH -> { }
-            case ML -> {
-                int rx = px + 186;
-                g.drawText(textRenderer, "Model", rx, ty, TEXT, false);
-                g.drawText(textRenderer, textRenderer.trimToWidth(MlBackend.INSTANCE.status, PW - 200), rx, ty + 12, DIM, false);
-                g.drawText(textRenderer, "Demos", rx, ty + 32, TEXT, false);
-                g.drawText(textRenderer, Recorder.INSTANCE.rows + " rows this session", rx, ty + 44, DIM, false);
-                g.drawText(textRenderer, "Mode ML uses the model;", tx, ty + 60, DIM, false);
-                g.drawText(textRenderer, "without one it runs Strict.", tx, ty + 71, DIM, false);
-                g.drawText(textRenderer, "Record while Strict/Smart fights,", tx, ty + 92, DIM, false);
-                g.drawText(textRenderer, "train with ml/train.py, then reload.", tx, ty + 103, DIM, false);
-            }
+        sidebar(g, mx, my, cl, ac);
+        header(g, mx, my, cl, ac);
+        textField.visible = false;
+        if (open == null) moduleList(g, mx, my, cl, cr, l, ac);
+        else settingList(g, mx, my, cl, cr, l, cfg, ac);
+
+        super.render(g, mx, my, delta);          // the two text boxes, on top
+    }
+
+    // ------------------------------------------------------------------ sidebar and header
+
+    private void sidebar(DrawContext g, int mx, int my, boolean cl, int ac) {
+        TextRenderer tr = textRenderer;
+        int x = px + 8, y = py + 12;
+        Theme.rounded(g, x, y + 1, 4, 16, 2, ac);
+        g.drawText(tr, Text.literal("Evolution").formatted(Formatting.BOLD), x + 9, y, Theme.TEXT, true);
+        g.drawText(tr, "BETA " + Watermark.version(), x + 9, y + 11, Theme.MUTED, false);
+
+        y = py + 46;
+        g.drawText(tr, "MODULES", x + 2, y, Theme.MUTED, false);
+        y += 12;
+        for (Cat c : TOP) { navItem(g, mx, my, cl, ac, x, y, c); y += 22; }
+        y += 8;
+        g.drawText(tr, "GENERAL", x + 2, y, Theme.MUTED, false);
+        y += 12;
+        for (Cat c : GEN) { navItem(g, mx, my, cl, ac, x, y, c); y += 22; }
+    }
+
+    private void navItem(DrawContext g, int mx, int my, boolean cl, int ac, int x, int y, Cat c) {
+        TextRenderer tr = textRenderer;
+        int w = SW - 16, h = 20;
+        boolean sel = cat == c && search.isBlank(), hov = Theme.in(mx, my, x, y, w, h);
+        if (sel) Theme.rounded(g, x, y, w, h, 5, Theme.alpha(ac, 24));
+        else if (hov) Theme.rounded(g, x, y, w, h, 5, Theme.CARD);
+        Theme.rounded(g, x + 6, y + 6, 8, 8, 3, sel ? ac : Theme.MUTED);
+        g.drawText(tr, c.label, x + 20, y + 6, sel ? ac : hov ? Theme.TEXT : Theme.DIM, false);
+        int count = 0;
+        for (Module m : modules) if (m.cat == c) count++;
+        String n = String.valueOf(count);
+        g.drawText(tr, n, x + w - 6 - tr.getWidth(n), y + 6, Theme.MUTED, false);
+        if (hov && cl) {
+            cat = c; open = null; scroll = 0;
+            searchField.setText("");
         }
     }
 
-    private static Text onOff(String label, boolean on) {
-        return Text.literal(label + ": ").append(Text.literal(on ? "ON" : "OFF").formatted(on ? Formatting.GREEN : Formatting.RED));
-    }
-
-    private ButtonWidget toggle(int x, int y, int w, String label, Supplier<Boolean> get, Consumer<Boolean> set) {
-        return ButtonWidget.builder(onOff(label, get.get()), b -> {
-            set.accept(!get.get());
-            b.setMessage(onOff(label, get.get()));
-        }).dimensions(x, y, w, 18).build();
-    }
-
-    private <E extends Enum<E>> ButtonWidget cycle(int x, int y, int w, String label, E[] values, Supplier<E> get, Consumer<E> set, Function<E, String> name) {
-        return ButtonWidget.builder(Text.literal(label + ": " + name.apply(get.get())), b -> {
-            set.accept(values[(get.get().ordinal() + 1) % values.length]);
-            b.setMessage(Text.literal(label + ": " + name.apply(get.get())));
-        }).dimensions(x, y, w, 18).build();
-    }
-
-    private static final class IntSlider extends SliderWidget {
-        private final String label, suffix;
-        private final int min, max;
-        private final IntConsumer set;
-
-        IntSlider(int x, int y, int w, String label, int min, int max, int cur, String suffix, IntConsumer set) {
-            super(x, y, w, 18, Text.empty(), (cur - min) / (double) (max - min));
-            this.label = label; this.suffix = suffix; this.min = min; this.max = max; this.set = set;
-            updateMessage();
+    private void header(DrawContext g, int mx, int my, boolean cl, int ac) {
+        TextRenderer tr = textRenderer;
+        int hy = py + 12;
+        if (open == null) {
+            String first = search.isBlank() ? cat.label : "Search";
+            Text t1 = Text.literal(first).formatted(Formatting.BOLD, Formatting.ITALIC);
+            g.drawText(tr, t1, cx, hy, ac, true);
+            g.drawText(tr, Text.literal(" Modules").formatted(Formatting.BOLD), cx + tr.getWidth(t1), hy, Theme.TEXT, true);
+            List<Module> v = visible();
+            long on = v.stream().filter(m -> m.on != null && m.on.get()).count();
+            g.drawText(tr, v.size() + " modules  |  " + on + " enabled  |  right-click a module for settings", cx, hy + 13, Theme.MUTED, false);
+            Theme.card(g, cx + cw - 146, py + 9, 146, 17, 5, Theme.CARD, Theme.STROKE);
+            if (searchField.getText().isEmpty() && !searchField.isFocused()) g.drawText(tr, "Search modules", cx + cw - 138, py + 14, Theme.MUTED, false);
+        } else {
+            Text t1 = Text.literal(open.name).formatted(Formatting.BOLD, Formatting.ITALIC);
+            g.drawText(tr, t1, cx, hy, ac, true);
+            g.drawText(tr, Text.literal(" Settings").formatted(Formatting.BOLD), cx + tr.getWidth(t1), hy, Theme.TEXT, true);
+            g.drawText(tr, tr.trimToWidth(open.desc, cw), cx, hy + 13, Theme.MUTED, false);
+            boolean hov = Theme.in(mx, my, cx, py + 38, 48, 12);
+            g.drawText(tr, "< Back", cx, py + 40, hov ? ac : Theme.DIM, false);
+            if (hov && cl) { open = null; scroll = 0; }
+            g.drawText(tr, "right-click to go back", cx + cw - tr.getWidth("right-click to go back"), py + 40, Theme.MUTED, false);
         }
+        searchField.visible = open == null;
+    }
 
-        private int val() { return min + (int) Math.round(value * (max - min)); }
+    // ------------------------------------------------------------------ module list
 
-        @Override protected void updateMessage() {
-            if (label == null) return;
-            setMessage(Text.literal(label + ": " + val() + suffix));
+    private void moduleList(DrawContext g, int mx, int my, boolean cl, boolean cr, boolean l, int ac) {
+        TextRenderer tr = textRenderer;
+        List<Module> v = visible();
+        int top = py + 42, bot = py + ph - 12;
+        Theme.card(g, cx, top, cw, bot - top, 7, Theme.CARD, Theme.STROKE);
+        int rows = Math.max(1, (bot - top - 8) / RH);
+        scroll = scrollbar(g, mx, my, cl, l, v.size(), rows, top, bot, ac);
+        int rx = cx + 4, rw = cw - 16;
+        for (int i = 0; i < rows && scroll + i < v.size(); i++) {
+            Module m = v.get(scroll + i);
+            int y = top + 4 + i * RH;
+            boolean hov = Theme.in(mx, my, rx, y, rw, RH) && !dragScroll;
+            if (hov) Theme.rounded(g, rx, y, rw, RH - 1, 5, Theme.CARD_HOVER);
+            g.drawText(tr, Text.literal(m.name).formatted(Formatting.BOLD), rx + 10, y + 4, Theme.TEXT, false);
+            g.drawText(tr, tr.trimToWidth(m.desc, rw - 96), rx + 10, y + 14, Theme.MUTED, false);
+            if (m.on != null) {
+                if (!m.settings.isEmpty()) g.drawText(tr, "...", rx + rw - 54, y + 6, Theme.MUTED, false);
+                toggleSwitch(g, rx + rw - 36, y + 6, m.on.get(), ac);
+            } else {
+                g.drawText(tr, ">", rx + rw - 14, y + 8, Theme.MUTED, false);
+            }
+            if (i < rows - 1 && scroll + i < v.size() - 1) g.fill(rx + 8, y + RH - 1, rx + rw - 8, y + RH, Theme.STROKE);
+            if (hov && cl) {
+                if (m.on != null) m.setOn.accept(!m.on.get());
+                else if (!m.settings.isEmpty()) { open = m; scroll = 0; return; }
+            }
+            if (hov && cr && !m.settings.isEmpty()) { open = m; scroll = 0; return; }
         }
+        if (v.isEmpty()) g.drawText(tr, "No modules match.", cx + 14, top + 14, Theme.MUTED, false);
+    }
 
-        @Override protected void applyValue() { set.accept(val()); }
+    // ------------------------------------------------------------------ settings
+
+    private void settingList(DrawContext g, int mx, int my, boolean cl, boolean cr, boolean l, ModConfig cfg, int ac) {
+        TextRenderer tr = textRenderer;
+        List<Setting> sl = open.settings;
+        int top = py + 54, bot = py + ph - 12;
+        Theme.card(g, cx, top, cw, bot - top, 7, Theme.CARD, Theme.STROKE);
+        int rows = Math.max(1, (bot - top - 8) / SRH);
+        scroll = scrollbar(g, mx, my, cl, l, sl.size(), rows, top, bot, ac);
+        int rx = cx + 4, rw = cw - 16;
+        boolean usedRight = false;
+        for (int i = 0; i < rows && scroll + i < sl.size(); i++) {
+            Setting s = sl.get(scroll + i);
+            int y = top + 4 + i * SRH;
+            boolean hov = Theme.in(mx, my, rx, y, rw, SRH) && !dragScroll;
+            g.drawText(tr, Text.literal(s.name).formatted(Formatting.BOLD), rx + 10, y + 4, Theme.TEXT, false);
+            g.drawText(tr, tr.trimToWidth(s.desc, rw - 190), rx + 10, y + 15, Theme.MUTED, false);
+            int right = rx + rw - 10;
+            switch (s.kind) {
+                case TOGGLE -> {
+                    toggleSwitch(g, right - 26, y + 7, s.getB.get(), ac);
+                    if (hov && cl) s.setB.accept(!s.getB.get());
+                }
+                case SLIDER -> {
+                    int val = s.getI.get();
+                    String vt = s.fmt.apply(val);
+                    int vw = tr.getWidth(vt);
+                    int tw = 84, tx = right - vw - 10 - tw, ty = y + SRH / 2 - 1;
+                    Theme.rounded(g, tx, ty, tw, 3, 1, Theme.OFF);
+                    int fw = (int) Math.round(tw * (val - s.min) / (double) Math.max(1, s.max - s.min));
+                    if (fw > 0) Theme.rounded(g, tx, ty, Math.max(2, fw), 3, 1, ac);
+                    Theme.rounded(g, tx + fw - 3, ty - 2, 7, 7, 3, Theme.TEXT);
+                    g.drawText(tr, vt, right - vw, y + 9, Theme.DIM, false);
+                    if (cl && Theme.in(mx, my, tx - 5, y, tw + 10, SRH)) dragging = s;
+                    if (dragging == s && l) {
+                        int nv = s.min + (int) Math.round((mx - tx) / (double) tw * (s.max - s.min));
+                        s.setI.accept(Math.max(s.min, Math.min(s.max, nv)));
+                    }
+                }
+                case CYCLE -> {
+                    int bw = 104, bx = right - bw;
+                    boolean chov = Theme.in(mx, my, bx, y + 5, bw, 16);
+                    Theme.card(g, bx, y + 5, bw, 16, 5, Theme.mix(ac, Theme.BG, chov ? 0.78f : 0.86f), Theme.alpha(ac, 55));
+                    String vt = tr.trimToWidth(s.getS.get(), bw - 10);
+                    g.drawText(tr, vt, bx + (bw - tr.getWidth(vt)) / 2, y + 9, ac, false);
+                    if (chov && cl) s.next.run();
+                    if (chov && cr) { s.prev.run(); usedRight = true; }
+                }
+                case ACTION -> {
+                    int bw = 60, bx = right - bw;
+                    boolean chov = Theme.in(mx, my, bx, y + 5, bw, 16);
+                    Theme.rounded(g, bx, y + 5, bw, 16, 5, chov ? Theme.mix(ac, Theme.TEXT, 0.25f) : ac);
+                    g.drawText(tr, "Run", bx + (bw - tr.getWidth("Run")) / 2, y + 9, Theme.BG, false);
+                    if (chov && cl) s.run.run();
+                }
+                case INFO -> {
+                    String vt = tr.trimToWidth(s.getS.get(), 200);
+                    g.drawText(tr, vt, right - tr.getWidth(vt), y + 9, Theme.DIM, false);
+                }
+                case TEXT -> {
+                    int bw = 130, bx = right - bw;
+                    Theme.card(g, bx, y + 5, bw, 16, 5, Theme.BG, textField.isFocused() ? ac : Theme.STROKE);
+                    textSetting = s;
+                    if (!textField.isFocused() && !textField.getText().equals(s.getS.get())) textField.setText(s.getS.get());
+                    textField.setX(bx + 6);
+                    textField.setY(y + 9);
+                    textField.setWidth(bw - 12);
+                    textField.visible = true;
+                }
+            }
+            if (i < rows - 1 && scroll + i < sl.size() - 1) g.fill(rx + 8, y + SRH - 1, rx + rw - 8, y + SRH, Theme.STROKE);
+        }
+        if (cr && !usedRight) { open = null; scroll = 0; }       // right-click anywhere else goes back
+    }
+
+    // ------------------------------------------------------------------ pieces
+
+    private void toggleSwitch(DrawContext g, int x, int y, boolean on, int ac) {
+        Theme.rounded(g, x, y, 26, 12, 6, on ? ac : Theme.OFF);
+        Theme.rounded(g, x + (on ? 16 : 2), y + 2, 8, 8, 4, on ? Theme.TEXT : Theme.MUTED);
+    }
+
+    /** Draws a scrollbar when the list is longer than the window and returns the clamped scroll position. */
+    private int scrollbar(DrawContext g, int mx, int my, boolean cl, boolean l, int count, int rows, int top, int bot, int ac) {
+        int max = Math.max(0, count - rows);
+        int s = Math.max(0, Math.min(max, scroll));
+        if (max == 0) return 0;
+        int x = cx + cw - 9, trackTop = top + 6, trackH = bot - top - 12;
+        int handleH = Math.max(14, trackH * rows / count);
+        if (cl && Theme.in(mx, my, x - 4, trackTop, 12, trackH)) dragScroll = true;
+        if (dragScroll && l) s = Math.max(0, Math.min(max, (int) Math.round((my - trackTop - handleH / 2.0) / Math.max(1, trackH - handleH) * max)));
+        int handleY = trackTop + (trackH - handleH) * s / max;
+        Theme.rounded(g, x, trackTop, 3, trackH, 1, Theme.OFF);
+        Theme.rounded(g, x, handleY, 3, handleH, 1, ac);
+        return s;
     }
 }

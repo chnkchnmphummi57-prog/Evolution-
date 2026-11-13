@@ -3,7 +3,7 @@
   "id": "pvpai",
   "version": "${version}",
   "name": "Evolution",
-  "description": "Sword PvP AI for singleplayer, LAN and your own server. Modes: ML, Strict, Smart.",
+  "description": "Evolution: sword, axe and mace PvP AI for singleplayer and servers you own.",
   "authors": ["Good Guy"],
   "license": "MIT",
   "environment": "client",

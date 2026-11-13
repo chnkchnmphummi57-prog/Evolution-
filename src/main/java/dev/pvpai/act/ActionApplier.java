@@ -16,7 +16,6 @@ import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
@@ -132,13 +131,10 @@ public final class ActionApplier {
 
         inventory(mc, p, a);
 
-        if (a.webGround != null && mc.interactionManager != null) { // cobweb on the opponent's feet
-            Vec3d hp = new Vec3d(a.webGround.getX() + 0.5, a.webGround.getY() + 1.0, a.webGround.getZ() + 0.5);
-            mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, new BlockHitResult(hp, Direction.UP, a.webGround, false));
-            p.swingHand(Hand.MAIN_HAND);
+        if (a.aim) {
+            if (a.snapAim) CameraSmoother.snap(p, a.goalYaw, a.goalPitch);   // an instant flick, sent to the server this tick
+            CameraSmoother.setGoal(a.goalYaw, a.goalPitch, a.fastAim);
         }
-
-        if (a.aim) CameraSmoother.setGoal(a.goalYaw, a.goalPitch, a.fastAim);
         if (a.attack) attack(mc, p, target, cfg);
     }
 
