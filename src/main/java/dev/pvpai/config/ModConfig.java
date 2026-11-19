@@ -50,11 +50,13 @@ public final class ModConfig {
     public int circleTicks = 30;             // circle strafing: ticks per direction (hold W + A or D around the opponent)
     public boolean uppercut = true;          // jump and hit together, then S
     public int uppercutChance = 10;
-    public int uppercutHitDelay = 0;         // 0 = hit on the jump tick, 1 = hit one tick after the jump
+    public int uppercutJumpDelay = 1;        // >0: hit first, jump this many ticks later. 0: together. <0: jump first, hit this many ticks later
     public int uppercutSTapDelay = 0;        // ticks after the jump until S is pressed (0 = at the same time as the jump)
     public boolean kbDisplace = false;       // flick the camera 180 degrees, turn back the next tick, hit a tick later
     public int kbDisplaceChance = 25;
-    public int kbHitDelay = 1;               // ticks between turning back and the hit
+    public int kbAngle = 180;                // how far the camera flicks (180 = straight behind, 90 = to the side)
+    public int kbFlickTicks = 1;             // ticks the camera stays flicked
+    public int kbHitDelay = 0;               // 0 = hit on the turn-back tick (this is what displaces the knockback), 1+ = later
 
     // Reach
     public boolean reachSpacing = true;      // wait just outside reach, step in and hit at the edge of reach
@@ -82,6 +84,22 @@ public final class ModConfig {
     public boolean healPots = true;          // splash instant health at your feet when low
     public int potHealth = 10;
     public boolean useWindCharge = true;     // Mace kit: wind charge boost before the smash attack
+    public int windCooldownTicks = 40;       // wait this long before the next wind charge
+    public boolean maceChain = true;         // keep the mace chain going after a landed smash (short cooldown)
+    public boolean stunSlam = true;          // opponent blocking in the air: axe their shield first, then slam
+    public int stunSlamDelay = 1;            // ticks between the axe hit and the slam
+    public boolean spearLunge = true;        // spear jab with Lunge to close the distance
+    public double lungeDist = 4.0;           // lunge when the opponent is at least this far away
+    public InputMode lungeInput = InputMode.INPUT;   // real click, or packets
+    public int lungeCooldownTicks = 15;
+    public boolean lungeHoldWind = true;     // hold a wind charge before every lunge (its fast attack bar makes the jab count), swap back to it after
+    public double lungeTravel = 3.0;         // how far one lunge carries you. The guard never lunges if it would end closer than 1 block.
+    public boolean maceShield = true;        // Mace kit: raise the shield when the opponent is above you
+    public double shieldAboveHeight = 2.0;   // "above" means at least this many blocks higher
+    public boolean pearlCatch = false;       // look up, throw a pearl, follow with the wind charge
+    public int pearlPitch = 85;              // how far up to look for the pearl (degrees)
+    public int pearlDelay = 20;              // ticks between the pearl and the wind-charge jump
+    public int pearlCooldownTicks = 100;
     public boolean shieldBreak = true;       // axe the opponent's shield after they block for a while
     public int shieldDelayMin = 20, shieldDelayMax = 100;
     public int shieldFailChance = 20;        // Smart only. Strict never fails.
@@ -99,6 +117,7 @@ public final class ModConfig {
 
     // Look
     public AccentColor accent = AccentColor.INDIGO;
+    public UiFont uiFont = UiFont.DEFAULT;
     public boolean hudVisible = true, hudCompact = false;
     public HudCorner hudCorner = HudCorner.TOP_LEFT;
     public int hudOpacity = 92;
@@ -143,6 +162,16 @@ public final class ModConfig {
         if (instance.watermarkStyle == null) instance.watermarkStyle = d.watermarkStyle;
         if (instance.watermarkText == null) instance.watermarkText = d.watermarkText;
         if (instance.allowedServers == null) instance.allowedServers = new ArrayList<>();
+        if (instance.lungeInput == null) instance.lungeInput = d.lungeInput;
+        if (instance.uiFont == null) instance.uiFont = d.uiFont;
+        if (instance.configVersion < 9) {        // v0.9: shorter lunge cooldown (the lunge now chains)
+            if (instance.lungeCooldownTicks == 30) instance.lungeCooldownTicks = 15;
+            instance.configVersion = 9;
+        }
+        if (instance.configVersion < 8) {        // v0.8: the KB displacement hit now happens on the turn-back tick
+            instance.kbHitDelay = 0;
+            instance.configVersion = 8;
+        }
         if (instance.configVersion < 7) {        // v0.7: new defaults for spacing and look
             instance.reachMargin = 0.03;
             instance.accent = AccentColor.INDIGO;

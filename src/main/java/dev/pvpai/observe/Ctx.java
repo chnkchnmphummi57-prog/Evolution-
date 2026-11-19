@@ -15,6 +15,7 @@ import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.registry.Registries;
 import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.math.Box;
@@ -32,8 +33,8 @@ public final class Ctx {
     public int hurtTime, tHurtTime;
     public boolean onGround, sprinting, tOnGround, crosshairOnTarget;
     public boolean tBlocking, tSwinging, usingItem, offhandShield, offhandTotem, offhandEmpty, holdingAxe;
-    public int selectedSlot, swordSlot = -1, axeSlot = -1, foodSlot = -1, totemSlot = -1, maceSlot = -1, windSlot = -1, potSlot = -1;
-    public double fallDistance;
+    public int selectedSlot, swordSlot = -1, axeSlot = -1, foodSlot = -1, totemSlot = -1, maceSlot = -1, windSlot = -1, potSlot = -1, spearSlot = -1, pearlSlot = -1, food = 20;
+    public double fallDistance, dyFeet;        // dyFeet: opponent feet minus our feet (positive = above us)
     public float tYaw, tPitch;
 
     public static Ctx build(ClientPlayerEntity p, LivingEntity t) {
@@ -45,6 +46,7 @@ public final class Ctx {
         c.dx = aim.x - eye.x; c.dy = aim.y - eye.y; c.dz = aim.z - eye.z;
         double h = Math.sqrt(c.dx * c.dx + c.dz * c.dz);
         c.dist = p.distanceTo(t);
+        c.dyFeet = t.getY() - p.getY();
         // Reach as the server measures it: eye to the nearest point of the opponent's hitbox.
         Vec3d near = new Vec3d(MathHelper.clamp(eye.x, bb.minX, bb.maxX), MathHelper.clamp(eye.y, bb.minY, bb.maxY),
                 MathHelper.clamp(eye.z, bb.minZ, bb.maxZ));
@@ -97,6 +99,7 @@ public final class Ctx {
 
     private static void scan(Ctx c, ClientPlayerEntity p) {
         c.usingItem = p.isUsingItem();
+        c.food = p.getHungerManager().getFoodLevel();
         ItemStack off = p.getOffHandStack();
         c.offhandShield = off.isOf(Items.SHIELD);
         c.offhandTotem = off.isOf(Items.TOTEM_OF_UNDYING);
@@ -113,6 +116,8 @@ public final class Ctx {
                 if (c.axeSlot < 0 && s.isIn(ItemTags.AXES)) c.axeSlot = i;
                 if (c.maceSlot < 0 && s.isOf(Items.MACE)) c.maceSlot = i;
                 if (c.windSlot < 0 && s.isOf(Items.WIND_CHARGE)) c.windSlot = i;
+                if (c.pearlSlot < 0 && s.isOf(Items.ENDER_PEARL)) c.pearlSlot = i;
+                if (c.spearSlot < 0 && Registries.ITEM.getId(s.getItem()).getPath().endsWith("_spear")) c.spearSlot = i;
                 if (c.foodSlot < 0 && (s.isOf(Items.GOLDEN_APPLE) || s.isOf(Items.ENCHANTED_GOLDEN_APPLE))) c.foodSlot = i;
                 if (c.potSlot < 0 && s.isOf(Items.SPLASH_POTION) && isHealing(s)) c.potSlot = i;
             }

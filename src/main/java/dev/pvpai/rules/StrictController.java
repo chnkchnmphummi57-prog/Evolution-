@@ -33,19 +33,20 @@ public final class StrictController {
     private ModConfig cfgRef;
     private int phaseTicks, strafeTick, tapLeft, tapDelay, pendingTicks, attackDelay = -1, critCooldown, jumpCooldown,
             counterTicks, idleTicks, resetPending, punishFails, blockWait, snapTicks, retreatLeft, retreatCooldown,
-            upSWait = -1, upAttackIn, kbState, kbWait, kbTicks;
+            upSWait = -1, upAttackIn, upJumpIn, kbState, kbWait, kbTicks, kbFlickLeft;
     private boolean strafeRight = true, pendingCrit, cycleRolled, cycleCrit, punishCombo;
+    private int kbSide = 1;
     private Tap tapType = Tap.NONE;
 
     public StrictController(boolean smart) { this.smart = smart; }
 
-    public boolean busy() { return pendingCrit || counterTicks > 0 || kbState != 0 || upAttackIn > 0 || phase == Phase.RUN_BACK || phase == Phase.KB_HIT; }
+    public boolean busy() { return pendingCrit || counterTicks > 0 || kbState != 0 || upAttackIn > 0 || upJumpIn > 0 || phase == Phase.RUN_BACK || phase == Phase.KB_HIT; }
 
     public void reset() {
         phase = Phase.NORMAL; phaseTicks = 0; tapLeft = 0; tapDelay = 0; pendingCrit = false; attackDelay = -1; critsFired = 0;
         critCooldown = 0; jumpCooldown = 0; counterTicks = 0; idleTicks = 0; resetPending = 0; punishFails = 0;
-        blockWait = 0; snapTicks = 0; retreatLeft = 0; retreatCooldown = 0; upSWait = -1; upAttackIn = 0;
-        kbState = 0; kbWait = 0; kbTicks = 0;
+        blockWait = 0; snapTicks = 0; retreatLeft = 0; retreatCooldown = 0; upSWait = -1; upAttackIn = 0; upJumpIn = 0;
+        kbState = 0; kbWait = 0; kbTicks = 0; kbFlickLeft = 0;
         cycleRolled = false; cycleCrit = false; punishCombo = false; tapType = Tap.NONE;
         java.util.Arrays.fill(ctr, 0);
     }
@@ -161,19 +162,31 @@ public final class StrictController {
             default -> { }
         }
 
-        // ---- KB displacement: tick 1 flick 180 (below), tick 2 turn back, then the hit kbHitDelay ticks later ----
+        // ---- KB displacement ----
+        // Tick 1 the camera flicks away (its rotation packet goes out at the end of that tick). On the turn-back tick we snap the camera
+        // back and click in the SAME tick: the click is processed before this tick's rotation packet is sent, so the server still has the
+        // flicked yaw when it computes the knockback (that is the displacement) while our crosshair is already back on the target.
+        // kbHitDelay > 0 waits extra ticks after turning back, which gives the server the target-facing yaw again (no displacement).
         if (kbState != 0) {
             kbTicks++;
             critState = "kb displacement";
-            if (kbState == 2) {                                  // tick 2: turn back to the target
-                a.snapAim = true;
-                kbWait = Math.max(1, cfg.kbHitDelay);
-                kbState = 3;
+            if (kbState == 2) {
+                if (kbFlickLeft > 0) {                           // still flicked
+                    kbFlickLeft--;
+                    a.goalYaw = c.yawToTarget + kbSide * cfg.kbAngle; a.snapAim = true;
+                    return a;
+                }
+                a.snapAim = true; a.goalYaw = c.yawToTarget; a.goalPitch = c.pitchToTarget;      // turn back
+                kbWait = Math.max(0, cfg.kbHitDelay);
+                if (kbWait == 0) {
+                    if (inReach && clear && c.cooldown >= 0.85f) { a.attack = true; critCooldown = 2; idleTicks = 0; }
+                    kbState = 0;
+                } else kbState = 3;
                 return a;
             }
             if (--kbWait > 0) return a;                          // wait for the hit tick
             if (inReach && look && clear && c.cooldown >= 0.85f) { a.attack = true; kbState = 0; critCooldown = 2; idleTicks = 0; return a; }
-            if (kbTicks > 8) kbState = 0;                        // could not line up: give up
+            if (kbTicks > 10) kbState = 0;                       // could not line up: give up
             return a;
         }
 
@@ -222,7 +235,8 @@ public final class StrictController {
         boolean mayAttack = !safe || counter || idleTicks > 60;
         boolean critHit = false, upHit = false;
 
-        if (upAttackIn > 0 && --upAttackIn == 0) {                    // uppercut with the hit one tick after the jump
+        if (upJumpIn > 0 && --upJumpIn == 0) { if (cfg.jump && c.onGround) startUpJump(a, cfg); }   // uppercut: the jump after the hit
+        if (upAttackIn > 0 && --upAttackIn == 0) {                    // uppercut with the jump first: the hit after it
             if (inReach && look && clear) { a.attack = true; upHit = true; }
         }
 
@@ -252,12 +266,16 @@ public final class StrictController {
                             && jumpCooldown == 0 && chance(cfg.uppercutChance, 7);
                     boolean kbFlick = !uppercut && cfg.kbDisplace && !spamStrat && !safe && !counter && chance(cfg.kbDisplaceChance, 6);
                     if (uppercut) {
-                        a.jump = true; jumpCooldown = 10; upSWait = Math.max(0, cfg.uppercutSTapDelay);
-                        if (cfg.uppercutHitDelay <= 0) { a.attack = true; upHit = true; }   // jump and hit on the same tick
-                        else upAttackIn = 1;                                                   // hit one tick after the jump
+                        int d = cfg.uppercutJumpDelay;
+                        if (d >= 0) { a.attack = true; upHit = true; }                        // hit first (or together with the jump)
+                        if (d == 0) startUpJump(a, cfg);                                       // same tick
+                        else if (d > 0) upJumpIn = d;                                          // jump d ticks after the hit
+                        else { startUpJump(a, cfg); upAttackIn = -d; }                         // jump first, hit -d ticks later
                     } else if (kbFlick) {
-                        kbState = 2; kbTicks = 0;                                  // tick 1 is this one: the flick
-                        a.goalYaw = c.yawToTarget + 180f; a.snapAim = true;                   // flick now, turn back next tick
+                        kbState = 2; kbTicks = 0;                                              // tick 1 is this one: the flick
+                        kbSide = smart ? (rng.nextBoolean() ? 1 : -1) : -kbSide;
+                        kbFlickLeft = Math.max(0, cfg.kbFlickTicks - 1);
+                        a.goalYaw = c.yawToTarget + kbSide * cfg.kbAngle; a.snapAim = true;   // flick now, turn back after the flick ticks
                         a.forward = false; a.back = false; a.left = false; a.right = false; a.sprint = false;
                         critState = "kb displacement";
                         return a;
@@ -277,7 +295,7 @@ public final class StrictController {
         if (a.attack) { idleTicks = 0; cycleRolled = false; cycleCrit = false; }
 
         // Uppercut: S is pressed upSWait ticks after the jump (0 = at the same time as the jump)
-        if (upSWait == 0) { tapType = Tap.S; tapLeft = Math.max(1, cfg.sTapTicks); a.back = true; a.forward = false; a.sprint = false; upSWait = -1; }
+        if (upSWait == 0) { tapType = Tap.S; tapLeft = Math.max(0, cfg.sTapTicks - 1); a.back = true; a.forward = false; a.sprint = false; upSWait = -1; }
         else if (upSWait > 0) upSWait--;
 
         // What follows a normal hit. The tap starts on the SAME tick as the hit (S-tap can be delayed one tick).
@@ -316,6 +334,10 @@ public final class StrictController {
                 : blockHold ? "opponent blocking"
                 : launchReady ? "armed" : "charging " + (int) (c.cooldown * 100) + "%";
         return a;
+    }
+
+    private void startUpJump(Action a, ModConfig cfg) {
+        a.jump = true; jumpCooldown = 10; upSWait = Math.max(0, cfg.uppercutSTapDelay);       // S follows the jump by uppercutSTapDelay
     }
 
     /** Strict: every Nth time (first one fires). Smart: random. */

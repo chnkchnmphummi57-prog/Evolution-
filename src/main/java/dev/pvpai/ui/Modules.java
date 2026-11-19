@@ -10,6 +10,7 @@ import dev.pvpai.config.Kit;
 import dev.pvpai.config.ModConfig;
 import dev.pvpai.config.Strategy;
 import dev.pvpai.config.TotemMethod;
+import dev.pvpai.config.UiFont;
 import dev.pvpai.config.WatermarkStyle;
 import dev.pvpai.core.AiController;
 import dev.pvpai.core.AiMode;
@@ -122,14 +123,18 @@ public final class Modules {
 
         m.add(new Module("Hit Select", "After taking a hit, counter immediately.", Cat.COMBAT, () -> cfg.hitSelect, v -> cfg.hitSelect = v));
 
-        m.add(new Module("Uppercut", "Jump and hit together, then S.", Cat.COMBAT, () -> cfg.uppercut, v -> cfg.uppercut = v,
+        m.add(new Module("Uppercut", "Hit and jump together, then S. The order is adjustable.", Cat.COMBAT, () -> cfg.uppercut, v -> cfg.uppercut = v,
                 sld("Chance", "Share of hits that become an uppercut.", 0, 100, () -> cfg.uppercutChance, v -> cfg.uppercutChance = v, "%"),
-                sld("Hit delay", "0: hit on the jump tick. 1: hit one tick after the jump.", 0, 1, () -> cfg.uppercutHitDelay, v -> cfg.uppercutHitDelay = v, " ticks"),
+                sld("Jump timing", "Positive: hit first, then jump that many ticks later. 0: together. Negative: jump first, hit that many ticks later.", -2, 5,
+                        () -> cfg.uppercutJumpDelay, v -> cfg.uppercutJumpDelay = v,
+                        v -> v > 0 ? "hit, jump +" + v + "t" : v == 0 ? "together" : "jump, hit +" + (-v) + "t"),
                 sld("S delay", "Ticks after the jump until S is pressed. 0 presses it at the same time as the jump.", 0, 10, () -> cfg.uppercutSTapDelay, v -> cfg.uppercutSTapDelay = v, " ticks")));
 
-        m.add(new Module("KB Displacement", "Flick the camera 180 degrees, turn back next tick, hit a tick later.", Cat.COMBAT, () -> cfg.kbDisplace, v -> cfg.kbDisplace = v,
+        m.add(new Module("KB Displacement", "Flick the camera away, snap back and hit on the same tick, so the server computes the knockback from the flicked angle.", Cat.COMBAT, () -> cfg.kbDisplace, v -> cfg.kbDisplace = v,
                 sld("Chance", "Share of hits that use it.", 0, 100, () -> cfg.kbDisplaceChance, v -> cfg.kbDisplaceChance = v, "%"),
-                sld("Hit delay", "Ticks between turning back and the hit. Minimum 1.", 1, 3, () -> cfg.kbHitDelay, v -> cfg.kbHitDelay = v, " ticks")));
+                sld("Hit delay", "Ticks between turning back and the hit. 0 hits on the turn-back tick, which is what displaces the knockback.", 0, 3, () -> cfg.kbHitDelay, v -> cfg.kbHitDelay = v, " ticks"),
+                sld("Flick angle", "How far the camera flicks. 180 is straight behind you, 90 is to the side.", 45, 180, () -> cfg.kbAngle, v -> cfg.kbAngle = v, " deg"),
+                sld("Flick length", "Ticks the camera stays flicked.", 1, 3, () -> cfg.kbFlickTicks, v -> cfg.kbFlickTicks = v, " ticks")));
 
         m.add(new Module("Shield Break", "Axe the opponent's shield after they have blocked for a while. Works at any charge.", Cat.COMBAT, () -> cfg.shieldBreak, v -> cfg.shieldBreak = v,
                 sld("Wait at least", "Ticks of sustained blocking before an attempt. Strict always waits this long.", 5, 200, () -> cfg.shieldDelayMin, v -> cfg.shieldDelayMin = v, " ticks"),
@@ -183,8 +188,27 @@ public final class Modules {
         m.add(new Module("Safe Shield", "Safe strategy raises the offhand shield while waiting.", Cat.MODERN, () -> cfg.safeBlock, v -> cfg.safeBlock = v));
 
         // ------------------------------------------------------------ MACE
-        m.add(new Module("Wind Charge Smash", "Look down, switch to a wind charge, jump and throw together, then smash.", Cat.MACE, () -> cfg.useWindCharge, v -> cfg.useWindCharge = v,
-                info("Status", "Needs a wind charge in the hotbar and the Mace kit.", () -> AiController.INSTANCE.mace.state.isEmpty() ? "idle" : AiController.INSTANCE.mace.state)));
+        m.add(new Module("Wind Charge Smash", "Look down, switch to a wind charge, jump and throw together, then smash. Needs the Mace kit.", Cat.MACE, () -> cfg.useWindCharge, v -> cfg.useWindCharge = v,
+                sld("Cooldown", "Wait this long before the next wind charge.", 5, 200, () -> cfg.windCooldownTicks, v -> cfg.windCooldownTicks = v, " ticks"),
+                tog("Chain", "After a smash that lands, start the next one after a short cooldown instead of dropping back to normal fighting.", () -> cfg.maceChain, v -> cfg.maceChain = v),
+                tog("Stun slam", "Opponent blocking in the air: axe their shield first, then slam.", () -> cfg.stunSlam, v -> cfg.stunSlam = v),
+                sld("Stun delay", "Ticks between the axe hit and the slam.", 0, 5, () -> cfg.stunSlamDelay, v -> cfg.stunSlamDelay = v, " ticks"),
+                tog("Shield above", "Raise the shield when the opponent is above you.", () -> cfg.maceShield, v -> cfg.maceShield = v),
+                sld("Above by", "How much higher than you counts as above.", 100, 800, () -> (int) Math.round(cfg.shieldAboveHeight * 100), v -> cfg.shieldAboveHeight = v / 100.0, Modules::hund),
+                info("Status", "Why it is or is not running.", () -> AiController.INSTANCE.mace.state.isEmpty() ? "idle" : AiController.INSTANCE.mace.state)));
+
+        m.add(new Module("Spear Lunge", "Jab with a Lunge spear to close the distance. Holds a wind charge before every lunge and keeps lunging until close.", Cat.MACE, () -> cfg.spearLunge, v -> cfg.spearLunge = v,
+                sld("Distance", "Lunge when the opponent is at least this far away (eye to hitbox).", 200, 800, () -> (int) Math.round(cfg.lungeDist * 100), v -> cfg.lungeDist = v / 100.0, Modules::hund),
+                sld("Travel", "How far one lunge carries you. It will not lunge if that would end within 1 block of the opponent.", 100, 800, () -> (int) Math.round(cfg.lungeTravel * 100), v -> cfg.lungeTravel = v / 100.0, Modules::hund),
+                tog("Hold wind charge", "Hold a wind charge between lunges: its attack bar refills in about 5 ticks and the swap makes the jab count.", () -> cfg.lungeHoldWind, v -> cfg.lungeHoldWind = v),
+                sld("Cooldown", "Ticks between lunges.", 0, 100, () -> cfg.lungeCooldownTicks, v -> cfg.lungeCooldownTicks = v, " ticks"),
+                cyc("Input", "Mouse and keyboard sends a real click. Packets sends the jab (STAB) action directly.", InputMode.values(), () -> cfg.lungeInput, v -> cfg.lungeInput = v, x -> x.label),
+                info("Status", "Needs a spear, a wind charge and 7 hunger.", () -> AiController.INSTANCE.lunge.state.isEmpty() ? "idle" : AiController.INSTANCE.lunge.state)));
+
+        m.add(new Module("Pearl Catch", "Mace chain: look up, throw a pearl, then follow with the wind charge. Experimental.", Cat.MACE, () -> cfg.pearlCatch, v -> cfg.pearlCatch = v,
+                sld("Look up", "Degrees to look up when throwing the pearl.", 30, 90, () -> cfg.pearlPitch, v -> cfg.pearlPitch = v, " deg"),
+                sld("Delay", "Ticks between the pearl and the wind-charge jump.", 0, 80, () -> cfg.pearlDelay, v -> cfg.pearlDelay = v, " ticks"),
+                sld("Cooldown", "Wait before another pearl.", 20, 600, () -> cfg.pearlCooldownTicks, v -> cfg.pearlCooldownTicks = v, " ticks")));
 
         // ------------------------------------------------------------ VISUAL
         m.add(new Module("HUD", "The live fight card.", Cat.VISUAL, () -> cfg.hudVisible, v -> cfg.hudVisible = v,
@@ -205,6 +229,8 @@ public final class Modules {
                 tog("AI state", "Show whether the AI is on.", () -> cfg.watermarkState, v -> cfg.watermarkState = v)));
         m.add(new Module("Accent", "The colour used by the HUD, this menu and the watermark.", Cat.VISUAL, null, null,
                 cyc("Colour", "Rainbow cycles through hues.", AccentColor.values(), () -> cfg.accent, v -> cfg.accent = v, x -> x.label)));
+        m.add(new Module("Font", "The font for the HUD, this menu and the watermark.", Cat.VISUAL, null, null,
+                cyc("Font", "Roboto, Source Sans and Mono are bundled with the mod. Minecraft is the pixel font, Unicode the built-in wide one.", UiFont.values(), () -> cfg.uiFont, v -> cfg.uiFont = v, x -> x.label)));
 
         // ------------------------------------------------------------ ML
         m.add(new Module("Record Demos", "Save what Strict or Smart does, to train a model from.", Cat.ML, () -> cfg.recordDemos, v -> cfg.recordDemos = v,

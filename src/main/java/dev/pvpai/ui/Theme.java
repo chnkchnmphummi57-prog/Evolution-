@@ -1,9 +1,14 @@
 package dev.pvpai.ui;
 
 import dev.pvpai.config.AccentColor;
+import dev.pvpai.config.UiFont;
 import dev.pvpai.config.ModConfig;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.text.Style;
+import net.minecraft.text.StyleSpriteSource;
+import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
 /** Shared colours and drawing helpers for the Evolution HUD, menu and watermark. Only plain fills, so it is version-proof. */
 public final class Theme {
@@ -12,6 +17,37 @@ public final class Theme {
     public static final int BG = 0xFF0B0C1E, SIDEBAR = 0xFF0E1026, CARD = 0xFF13152F, CARD_HOVER = 0xFF1B1E42, STROKE = 0xFF24274D,
             TEXT = 0xFFEEF0FF, DIM = 0xFF8C90B5, MUTED = 0xFF5A5E85, OFF = 0xFF2C2F58,
             GOOD = 0xFF4ADE80, WARN = 0xFFFBBF24, BAD = 0xFFF87171;
+
+    // ---- text (font aware): everything the mod draws goes through these so the selected font applies ----
+    private static UiFont cachedFont;
+    private static Style cachedStyle = Style.EMPTY;
+
+    /** The style carrying the selected font. */
+    public static Style style() {
+        UiFont f = ModConfig.get().uiFont;
+        if (f != cachedFont) {
+            cachedFont = f;
+            cachedStyle = f.path == null ? Style.EMPTY : Style.EMPTY.withFont(new StyleSpriteSource.Font(Identifier.of(f.namespace, f.path)));
+        }
+        return cachedStyle;
+    }
+
+    public static Text t(String s) { return Text.literal(s).setStyle(style()); }
+    public static Text bold(String s) { return Text.literal(s).setStyle(style().withBold(true)); }
+    public static Text boldItalic(String s) { return Text.literal(s).setStyle(style().withBold(true).withItalic(true)); }
+
+    public static void text(DrawContext g, TextRenderer tr, String s, int x, int y, int color, boolean shadow) { g.drawText(tr, t(s), x, y, color, shadow); }
+    public static void text(DrawContext g, TextRenderer tr, Text s, int x, int y, int color, boolean shadow) { g.drawText(tr, s, x, y, color, shadow); }
+    public static int w(TextRenderer tr, String s) { return tr.getWidth(t(s)); }
+    public static int w(TextRenderer tr, Text s) { return tr.getWidth(s); }
+
+    /** Cuts the string so it fits max pixels in the selected font. */
+    public static String trim(TextRenderer tr, String s, int max) {
+        if (w(tr, s) <= max) return s;
+        int end = s.length();
+        while (end > 0 && w(tr, s.substring(0, end)) > max) end--;
+        return s.substring(0, end);
+    }
 
     public static int accent(ModConfig cfg) {
         if (cfg.accent == AccentColor.RAINBOW) return hsv((System.currentTimeMillis() % 6000L) / 6000f, 0.55f, 1.0f);
@@ -71,15 +107,15 @@ public final class Theme {
         int cx = x;
         for (int i = 0; i < s.length(); i++) {
             String ch = String.valueOf(s.charAt(i));
-            g.drawText(tr, ch, cx, y, color, shadow);
-            cx += tr.getWidth(ch) + spacing;
+            text(g, tr, ch, cx, y, color, shadow);
+            cx += w(tr, ch) + spacing;
         }
         return cx - x - spacing;
     }
 
     public static int spacedWidth(TextRenderer tr, String s, int spacing) {
         int w = 0;
-        for (int i = 0; i < s.length(); i++) w += tr.getWidth(String.valueOf(s.charAt(i))) + spacing;
+        for (int i = 0; i < s.length(); i++) w += w(tr, String.valueOf(s.charAt(i))) + spacing;
         return Math.max(0, w - spacing);
     }
 }

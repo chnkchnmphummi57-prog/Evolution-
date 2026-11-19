@@ -169,6 +169,13 @@ public final class Utility {
         }
         if (swapDisabled && heavyKit(cfg)) s = "attr swap: off (hits not registering)";
 
+        // 6b) Mace kit: opponent above us (their smash comes from above) -> shield up, no swinging
+        if (cfg.maceShield && cfg.kit == Kit.MACE && c.offhandShield && !eating && !potting
+                && c.dyFeet >= cfg.shieldAboveHeight && Math.hypot(c.dx, c.dz) <= 8.0) {
+            a.use = true; a.attack = false;
+            s = "shield up (opponent above)";
+        }
+
         // 7) Default hotbar: the weapon to hold between hits
         int idle = idleSlot(c, cfg);
         if (a.selectSlot < 0 && !eating && !potting && sp == Shield.IDLE && idle >= 0 && c.selectedSlot != idle) {

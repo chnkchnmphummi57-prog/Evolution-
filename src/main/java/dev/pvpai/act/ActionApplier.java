@@ -16,6 +16,8 @@ import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
+import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
@@ -47,6 +49,7 @@ public final class ActionApplier {
 
     private static final Map<KeyBinding, Boolean> HELD = new HashMap<>();
     private static boolean attackHeld;
+    private static int restoreSlot = -1;   // hotbar slot to return to at the end of this tick (spear lunge swap)
 
     private static InputUtil.Key keyOf(KeyBinding kb) {
         return InputUtil.fromTranslationKey(kb.getBoundKeyTranslationKey());
@@ -72,6 +75,7 @@ public final class ActionApplier {
     public static void resetKeys() {
         HELD.clear();
         attackHeld = false;
+        restoreSlot = -1;
         KeyBinding.updatePressedStates();
     }
 
@@ -80,6 +84,12 @@ public final class ActionApplier {
         if (attackHeld) {
             KeyBinding.setKeyPressed(keyOf(mc.options.attackKey), false);
             attackHeld = false;
+        }
+        if (restoreSlot >= 0 && mc.player != null) {            // back to the real weapon within the same tick as the lunge
+            mc.player.getInventory().setSelectedSlot(restoreSlot);
+            ClientPlayNetworkHandler nh = mc.getNetworkHandler();
+            if (nh != null) nh.sendPacket(new UpdateSelectedSlotC2SPacket(restoreSlot));
+            restoreSlot = -1;
         }
         if (mc.player != null) CameraSmoother.recordSent(mc.player);
     }
@@ -135,7 +145,46 @@ public final class ActionApplier {
             if (a.snapAim) CameraSmoother.snap(p, a.goalYaw, a.goalPitch);   // an instant flick, sent to the server this tick
             CameraSmoother.setGoal(a.goalYaw, a.goalPitch, a.fastAim);
         }
+        if (a.attack && a.snapAim && cfg.inputMode == InputMode.INPUT) refreshCrosshair(mc, p, target, a);
+        if (a.lunge) lunge(mc, p, a, cfg);
         if (a.attack) attack(mc, p, target, cfg);
+    }
+
+    /**
+     * After an instant camera snap the game's crosshair pick is still the one from the last frame (the old angle), so a real click would
+     * miss. Recompute it for the new angle; if the new angle really is on the target, a click now registers like a manual one.
+     */
+    private static void refreshCrosshair(MinecraftClient mc, ClientPlayerEntity p, Entity target, Action a) {
+        Box tight = target.getBoundingBox().expand(-0.02);
+        Vec3d eye = p.getEyePos();
+        Vec3d dir = Vec3d.fromPolar(p.getPitch(), p.getYaw());
+        if (tight.raycast(eye, eye.add(dir.multiply(6.0))).isPresent()) mc.crosshairTarget = new EntityHitResult(target);
+        else a.attack = false;
+    }
+
+    /**
+     * Spear lunge. A jab only lunges when the attack bar is full, and the server judges that with the item held BEFORE a swap in the
+     * same tick, so the sequence is: select the spear, jab, select the real weapon again, all within one tick.
+     * Mouse & keyboard: a real click, the slot is restored at the end of the tick. Packets: slot, STAB action, slot.
+     */
+    private static void lunge(MinecraftClient mc, ClientPlayerEntity p, Action a, ModConfig cfg) {
+        if (a.lungeSlot < 0) return;
+        int prev = a.restoreSlot >= 0 ? a.restoreSlot : p.getInventory().getSelectedSlot();   // the wind charge when it is the holder
+        ClientPlayNetworkHandler nh = mc.getNetworkHandler();
+        if (cfg.lungeInput == InputMode.PACKET) {
+            if (nh == null) return;
+            nh.sendPacket(new UpdateSelectedSlotC2SPacket(a.lungeSlot));
+            nh.sendPacket(new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.STAB, BlockPos.ORIGIN, Direction.DOWN));
+            p.swingHand(Hand.MAIN_HAND);
+            nh.sendPacket(new UpdateSelectedSlotC2SPacket(prev));
+        } else {
+            p.getInventory().setSelectedSlot(a.lungeSlot);
+            InputUtil.Key key = keyOf(mc.options.attackKey);
+            KeyBinding.setKeyPressed(key, true);
+            KeyBinding.onKeyPressed(key);
+            attackHeld = true;
+            restoreSlot = prev;
+        }
     }
 
     private static boolean canSprint(ClientPlayerEntity p) {

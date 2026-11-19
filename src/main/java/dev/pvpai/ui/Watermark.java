@@ -37,9 +37,9 @@ public final class Watermark {
 
         boolean box = cfg.watermarkStyle == dev.pvpai.config.WatermarkStyle.BOX;
         int pad = box ? 6 : 0;
-        int tw = tr.getWidth(title);
+        int tw = Theme.w(tr, title);
         int w = tw;
-        for (String p : parts) w += 9 + tr.getWidth(p);
+        for (String p : parts) w += 9 + Theme.w(tr, p);
         int h = 12;
         int bw = w + pad * 2 + (box ? 3 : 0), bh = h + (box ? 6 : 0);
 
@@ -56,12 +56,12 @@ public final class Watermark {
             tx = x + 3 + pad;
         }
 
-        g.drawText(tr, title, tx, ty, Theme.alpha(accent, op), true);
+        Theme.text(g, tr, title, tx, ty, Theme.alpha(accent, op), true);
         int cx = tx + tw;
         for (String p : parts) {
-            g.drawText(tr, "|", cx + 3, ty, Theme.alpha(Theme.MUTED, op), false);
-            g.drawText(tr, p, cx + 9, ty, Theme.alpha(Theme.TEXT, op), false);
-            cx += 9 + tr.getWidth(p);
+            Theme.text(g, tr, "|", cx + 3, ty, Theme.alpha(Theme.MUTED, op), false);
+            Theme.text(g, tr, p, cx + 9, ty, Theme.alpha(Theme.TEXT, op), false);
+            cx += 9 + Theme.w(tr, p);
         }
         if (cfg.watermarkStyle == dev.pvpai.config.WatermarkStyle.LINE) {
             g.fill(tx, ty + 11, tx + w, ty + 12, Theme.alpha(accent, op));

@@ -54,17 +54,17 @@ public final class HudOverlay {
 
         // header: title, kit, state pill
         int tw = Theme.spaced(g, tr, "EVOLUTION", ix, cy + 1, accent, 1, true);
-        g.drawText(tr, cfg.kit.label, ix + tw + 6, cy + 1, Theme.MUTED, false);
+        Theme.text(g, tr, cfg.kit.label, ix + tw + 6, cy + 1, Theme.MUTED, false);
         String stateText = cfg.enabled ? "ON" : "OFF";
-        int pw = tr.getWidth(stateText) + 10;
+        int pw = Theme.w(tr, stateText) + 10;
         int pillCol = cfg.enabled ? accent : Theme.OFF;
         Theme.rounded(g, ix + inner - pw, cy, pw, 12, 6, Theme.alpha(pillCol, cfg.enabled ? 40 : 100));
-        g.drawText(tr, stateText, ix + inner - pw + 5, cy + 2, cfg.enabled ? accent : Theme.DIM, false);
+        Theme.text(g, tr, stateText, ix + inner - pw + 5, cy + 2, cfg.enabled ? accent : Theme.DIM, false);
         cy += 14;
 
-        g.drawText(tr, cfg.mode.label + "  /  " + cfg.strategy.label, ix, cy + 1, Theme.DIM, false);
+        Theme.text(g, tr, cfg.mode.label + "  /  " + cfg.strategy.label, ix, cy + 1, Theme.DIM, false);
         cy += 12 + 4;
-        g.drawText(tr, tr.trimToWidth((cfg.enabled ? "" : "off  ") + ai.status, inner), ix, cy, Theme.TEXT, false);
+        Theme.text(g, tr, Theme.trim(tr, (cfg.enabled ? "" : "off  ") + ai.status, inner), ix, cy, Theme.TEXT, false);
         cy += 12;
 
         // bars
@@ -83,7 +83,7 @@ public final class HudOverlay {
         for (int i = 0; i < 4; i++) {
             int kx = ix + i * 17;
             Theme.rounded(g, kx, cy, 15, 15, 3, pressed[i] ? accent : Theme.CARD);
-            g.drawText(tr, caps[i], kx + 8 - tr.getWidth(caps[i]) / 2, cy + 4, pressed[i] ? Theme.BG : Theme.MUTED, false);
+            Theme.text(g, tr, caps[i], kx + 8 - Theme.w(tr, caps[i]) / 2, cy + 4, pressed[i] ? Theme.BG : Theme.MUTED, false);
         }
         int kx = ix + 4 * 17 + 4;
         kx += tag(g, tr, kx, cy, "JUMP", a != null && a.jump, accent) + 3;
@@ -94,11 +94,11 @@ public final class HudOverlay {
         // move chips (wrap to the card width)
         int cxp = ix, row = 0;
         for (int i = 0; i < names.length; i++) {
-            int cwid = tr.getWidth(names[i]) + 8;
+            int cwid = Theme.w(tr, names[i]) + 8;
             if (cxp + cwid > ix + inner) { cxp = ix; row++; }
             int chipY = cy + row * 13;
             Theme.rounded(g, cxp, chipY, cwid, 11, 3, on[i] ? Theme.mix(accent, Theme.BG, 0.72f) : Theme.CARD);
-            g.drawText(tr, names[i], cxp + 4, chipY + 2, on[i] ? accent : Theme.MUTED, false);
+            Theme.text(g, tr, names[i], cxp + 4, chipY + 2, on[i] ? accent : Theme.MUTED, false);
             cxp += cwid + 3;
         }
         cy += rows * 13 + 4;
@@ -116,7 +116,7 @@ public final class HudOverlay {
     private static int chipRows(TextRenderer tr, String[] names, int maxW) {
         int x = 0, rows = 1;
         for (String n : names) {
-            int w = tr.getWidth(n) + 8;
+            int w = Theme.w(tr, n) + 8;
             if (x + w > maxW) { x = 0; rows++; }
             x += w + 3;
         }
@@ -126,22 +126,22 @@ public final class HudOverlay {
     private static int hpColor(double f) { return f > 0.5 ? Theme.GOOD : f > 0.25 ? Theme.WARN : Theme.BAD; }
 
     private static void bar(DrawContext g, TextRenderer tr, int x, int y, int w, String label, String value, double frac, int color) {
-        g.drawText(tr, label, x, y, Theme.MUTED, false);
-        g.drawText(tr, value, x + w - tr.getWidth(value), y, Theme.TEXT, false);
+        Theme.text(g, tr, label, x, y, Theme.MUTED, false);
+        Theme.text(g, tr, value, x + w - Theme.w(tr, value), y, Theme.TEXT, false);
         Theme.rounded(g, x, y + 10, w, 3, 1, Theme.OFF);
         int fw = (int) Math.round(w * Math.max(0, Math.min(1, frac)));
         if (fw > 0) Theme.rounded(g, x, y + 10, Math.max(2, fw), 3, 1, color);
     }
 
     private static int tag(DrawContext g, TextRenderer tr, int x, int y, String text, boolean lit, int accent) {
-        int w = tr.getWidth(text) + 8;
+        int w = Theme.w(tr, text) + 8;
         Theme.rounded(g, x, y, w, 15, 3, lit ? accent : Theme.CARD);
-        g.drawText(tr, text, x + 4, y + 4, lit ? Theme.BG : Theme.MUTED, false);
+        Theme.text(g, tr, text, x + 4, y + 4, lit ? Theme.BG : Theme.MUTED, false);
         return w;
     }
 
     private static void footer(DrawContext g, TextRenderer tr, int x, int y, int w, String label, String value, int color) {
-        g.drawText(tr, label, x, y, Theme.MUTED, false);
-        g.drawText(tr, tr.trimToWidth(value, w - 34), x + 34, y, color, false);
+        Theme.text(g, tr, label, x, y, Theme.MUTED, false);
+        Theme.text(g, tr, Theme.trim(tr, value, w - 34), x + 34, y, color, false);
     }
 }

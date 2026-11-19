@@ -1,0 +1,4 @@
+{"providers":[
+  {"type":"ttf","file":"pvpai:roboto.ttf","shift":[0.0,0.0],"size":10.0,"oversample":8.0},
+  {"type":"reference","id":"minecraft:default"}
+]}

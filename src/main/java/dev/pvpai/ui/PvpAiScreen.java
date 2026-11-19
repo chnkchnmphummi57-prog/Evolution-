@@ -142,15 +142,15 @@ public final class PvpAiScreen extends Screen {
         TextRenderer tr = textRenderer;
         int x = px + 8, y = py + 12;
         Theme.rounded(g, x, y + 1, 4, 16, 2, ac);
-        g.drawText(tr, Text.literal("Evolution").formatted(Formatting.BOLD), x + 9, y, Theme.TEXT, true);
-        g.drawText(tr, "BETA " + Watermark.version(), x + 9, y + 11, Theme.MUTED, false);
+        Theme.text(g, tr, Theme.bold("Evolution"), x + 9, y, Theme.TEXT, true);
+        Theme.text(g, tr, "BETA " + Watermark.version(), x + 9, y + 11, Theme.MUTED, false);
 
         y = py + 46;
-        g.drawText(tr, "MODULES", x + 2, y, Theme.MUTED, false);
+        Theme.text(g, tr, "MODULES", x + 2, y, Theme.MUTED, false);
         y += 12;
         for (Cat c : TOP) { navItem(g, mx, my, cl, ac, x, y, c); y += 22; }
         y += 8;
-        g.drawText(tr, "GENERAL", x + 2, y, Theme.MUTED, false);
+        Theme.text(g, tr, "GENERAL", x + 2, y, Theme.MUTED, false);
         y += 12;
         for (Cat c : GEN) { navItem(g, mx, my, cl, ac, x, y, c); y += 22; }
     }
@@ -162,11 +162,11 @@ public final class PvpAiScreen extends Screen {
         if (sel) Theme.rounded(g, x, y, w, h, 5, Theme.alpha(ac, 24));
         else if (hov) Theme.rounded(g, x, y, w, h, 5, Theme.CARD);
         Theme.rounded(g, x + 6, y + 6, 8, 8, 3, sel ? ac : Theme.MUTED);
-        g.drawText(tr, c.label, x + 20, y + 6, sel ? ac : hov ? Theme.TEXT : Theme.DIM, false);
+        Theme.text(g, tr, c.label, x + 20, y + 6, sel ? ac : hov ? Theme.TEXT : Theme.DIM, false);
         int count = 0;
         for (Module m : modules) if (m.cat == c) count++;
         String n = String.valueOf(count);
-        g.drawText(tr, n, x + w - 6 - tr.getWidth(n), y + 6, Theme.MUTED, false);
+        Theme.text(g, tr, n, x + w - 6 - Theme.w(tr, n), y + 6, Theme.MUTED, false);
         if (hov && cl) {
             cat = c; open = null; scroll = 0;
             searchField.setText("");
@@ -178,23 +178,23 @@ public final class PvpAiScreen extends Screen {
         int hy = py + 12;
         if (open == null) {
             String first = search.isBlank() ? cat.label : "Search";
-            Text t1 = Text.literal(first).formatted(Formatting.BOLD, Formatting.ITALIC);
-            g.drawText(tr, t1, cx, hy, ac, true);
-            g.drawText(tr, Text.literal(" Modules").formatted(Formatting.BOLD), cx + tr.getWidth(t1), hy, Theme.TEXT, true);
+            Text t1 = Theme.boldItalic(first);
+            Theme.text(g, tr, t1, cx, hy, ac, true);
+            Theme.text(g, tr, Theme.bold(" Modules"), cx + Theme.w(tr, t1), hy, Theme.TEXT, true);
             List<Module> v = visible();
             long on = v.stream().filter(m -> m.on != null && m.on.get()).count();
-            g.drawText(tr, v.size() + " modules  |  " + on + " enabled  |  right-click a module for settings", cx, hy + 13, Theme.MUTED, false);
+            Theme.text(g, tr, v.size() + " modules  |  " + on + " enabled  |  right-click a module for settings", cx, hy + 13, Theme.MUTED, false);
             Theme.card(g, cx + cw - 146, py + 9, 146, 17, 5, Theme.CARD, Theme.STROKE);
-            if (searchField.getText().isEmpty() && !searchField.isFocused()) g.drawText(tr, "Search modules", cx + cw - 138, py + 14, Theme.MUTED, false);
+            if (searchField.getText().isEmpty() && !searchField.isFocused()) Theme.text(g, tr, "Search modules", cx + cw - 138, py + 14, Theme.MUTED, false);
         } else {
-            Text t1 = Text.literal(open.name).formatted(Formatting.BOLD, Formatting.ITALIC);
-            g.drawText(tr, t1, cx, hy, ac, true);
-            g.drawText(tr, Text.literal(" Settings").formatted(Formatting.BOLD), cx + tr.getWidth(t1), hy, Theme.TEXT, true);
-            g.drawText(tr, tr.trimToWidth(open.desc, cw), cx, hy + 13, Theme.MUTED, false);
+            Text t1 = Theme.boldItalic(open.name);
+            Theme.text(g, tr, t1, cx, hy, ac, true);
+            Theme.text(g, tr, Theme.bold(" Settings"), cx + Theme.w(tr, t1), hy, Theme.TEXT, true);
+            Theme.text(g, tr, Theme.trim(tr, open.desc, cw), cx, hy + 13, Theme.MUTED, false);
             boolean hov = Theme.in(mx, my, cx, py + 38, 48, 12);
-            g.drawText(tr, "< Back", cx, py + 40, hov ? ac : Theme.DIM, false);
+            Theme.text(g, tr, "< Back", cx, py + 40, hov ? ac : Theme.DIM, false);
             if (hov && cl) { open = null; scroll = 0; }
-            g.drawText(tr, "right-click to go back", cx + cw - tr.getWidth("right-click to go back"), py + 40, Theme.MUTED, false);
+            Theme.text(g, tr, "right-click to go back", cx + cw - Theme.w(tr, "right-click to go back"), py + 40, Theme.MUTED, false);
         }
         searchField.visible = open == null;
     }
@@ -214,13 +214,13 @@ public final class PvpAiScreen extends Screen {
             int y = top + 4 + i * RH;
             boolean hov = Theme.in(mx, my, rx, y, rw, RH) && !dragScroll;
             if (hov) Theme.rounded(g, rx, y, rw, RH - 1, 5, Theme.CARD_HOVER);
-            g.drawText(tr, Text.literal(m.name).formatted(Formatting.BOLD), rx + 10, y + 4, Theme.TEXT, false);
-            g.drawText(tr, tr.trimToWidth(m.desc, rw - 96), rx + 10, y + 14, Theme.MUTED, false);
+            Theme.text(g, tr, Theme.bold(m.name), rx + 10, y + 4, Theme.TEXT, false);
+            Theme.text(g, tr, Theme.trim(tr, m.desc, rw - 96), rx + 10, y + 14, Theme.MUTED, false);
             if (m.on != null) {
-                if (!m.settings.isEmpty()) g.drawText(tr, "...", rx + rw - 54, y + 6, Theme.MUTED, false);
+                if (!m.settings.isEmpty()) Theme.text(g, tr, "...", rx + rw - 54, y + 6, Theme.MUTED, false);
                 toggleSwitch(g, rx + rw - 36, y + 6, m.on.get(), ac);
             } else {
-                g.drawText(tr, ">", rx + rw - 14, y + 8, Theme.MUTED, false);
+                Theme.text(g, tr, ">", rx + rw - 14, y + 8, Theme.MUTED, false);
             }
             if (i < rows - 1 && scroll + i < v.size() - 1) g.fill(rx + 8, y + RH - 1, rx + rw - 8, y + RH, Theme.STROKE);
             if (hov && cl) {
@@ -229,7 +229,7 @@ public final class PvpAiScreen extends Screen {
             }
             if (hov && cr && !m.settings.isEmpty()) { open = m; scroll = 0; return; }
         }
-        if (v.isEmpty()) g.drawText(tr, "No modules match.", cx + 14, top + 14, Theme.MUTED, false);
+        if (v.isEmpty()) Theme.text(g, tr, "No modules match.", cx + 14, top + 14, Theme.MUTED, false);
     }
 
     // ------------------------------------------------------------------ settings
@@ -247,8 +247,8 @@ public final class PvpAiScreen extends Screen {
             Setting s = sl.get(scroll + i);
             int y = top + 4 + i * SRH;
             boolean hov = Theme.in(mx, my, rx, y, rw, SRH) && !dragScroll;
-            g.drawText(tr, Text.literal(s.name).formatted(Formatting.BOLD), rx + 10, y + 4, Theme.TEXT, false);
-            g.drawText(tr, tr.trimToWidth(s.desc, rw - 190), rx + 10, y + 15, Theme.MUTED, false);
+            Theme.text(g, tr, Theme.bold(s.name), rx + 10, y + 4, Theme.TEXT, false);
+            Theme.text(g, tr, Theme.trim(tr, s.desc, rw - 190), rx + 10, y + 15, Theme.MUTED, false);
             int right = rx + rw - 10;
             switch (s.kind) {
                 case TOGGLE -> {
@@ -258,13 +258,13 @@ public final class PvpAiScreen extends Screen {
                 case SLIDER -> {
                     int val = s.getI.get();
                     String vt = s.fmt.apply(val);
-                    int vw = tr.getWidth(vt);
+                    int vw = Theme.w(tr, vt);
                     int tw = 84, tx = right - vw - 10 - tw, ty = y + SRH / 2 - 1;
                     Theme.rounded(g, tx, ty, tw, 3, 1, Theme.OFF);
                     int fw = (int) Math.round(tw * (val - s.min) / (double) Math.max(1, s.max - s.min));
                     if (fw > 0) Theme.rounded(g, tx, ty, Math.max(2, fw), 3, 1, ac);
                     Theme.rounded(g, tx + fw - 3, ty - 2, 7, 7, 3, Theme.TEXT);
-                    g.drawText(tr, vt, right - vw, y + 9, Theme.DIM, false);
+                    Theme.text(g, tr, vt, right - vw, y + 9, Theme.DIM, false);
                     if (cl && Theme.in(mx, my, tx - 5, y, tw + 10, SRH)) dragging = s;
                     if (dragging == s && l) {
                         int nv = s.min + (int) Math.round((mx - tx) / (double) tw * (s.max - s.min));
@@ -275,8 +275,8 @@ public final class PvpAiScreen extends Screen {
                     int bw = 104, bx = right - bw;
                     boolean chov = Theme.in(mx, my, bx, y + 5, bw, 16);
                     Theme.card(g, bx, y + 5, bw, 16, 5, Theme.mix(ac, Theme.BG, chov ? 0.78f : 0.86f), Theme.alpha(ac, 55));
-                    String vt = tr.trimToWidth(s.getS.get(), bw - 10);
-                    g.drawText(tr, vt, bx + (bw - tr.getWidth(vt)) / 2, y + 9, ac, false);
+                    String vt = Theme.trim(tr, s.getS.get(), bw - 10);
+                    Theme.text(g, tr, vt, bx + (bw - Theme.w(tr, vt)) / 2, y + 9, ac, false);
                     if (chov && cl) s.next.run();
                     if (chov && cr) { s.prev.run(); usedRight = true; }
                 }
@@ -284,12 +284,12 @@ public final class PvpAiScreen extends Screen {
                     int bw = 60, bx = right - bw;
                     boolean chov = Theme.in(mx, my, bx, y + 5, bw, 16);
                     Theme.rounded(g, bx, y + 5, bw, 16, 5, chov ? Theme.mix(ac, Theme.TEXT, 0.25f) : ac);
-                    g.drawText(tr, "Run", bx + (bw - tr.getWidth("Run")) / 2, y + 9, Theme.BG, false);
+                    Theme.text(g, tr, "Run", bx + (bw - Theme.w(tr, "Run")) / 2, y + 9, Theme.BG, false);
                     if (chov && cl) s.run.run();
                 }
                 case INFO -> {
-                    String vt = tr.trimToWidth(s.getS.get(), 200);
-                    g.drawText(tr, vt, right - tr.getWidth(vt), y + 9, Theme.DIM, false);
+                    String vt = Theme.trim(tr, s.getS.get(), 200);
+                    Theme.text(g, tr, vt, right - Theme.w(tr, vt), y + 9, Theme.DIM, false);
                 }
                 case TEXT -> {
                     int bw = 130, bx = right - bw;

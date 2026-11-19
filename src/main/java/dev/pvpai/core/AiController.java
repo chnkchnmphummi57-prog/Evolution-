@@ -9,6 +9,7 @@ import dev.pvpai.ml.MlBackend;
 import dev.pvpai.ml.Recorder;
 import dev.pvpai.observe.Ctx;
 import dev.pvpai.observe.FightTracker;
+import dev.pvpai.rules.LungeController;
 import dev.pvpai.rules.MaceController;
 import dev.pvpai.rules.StrictController;
 import dev.pvpai.rules.Utility;
@@ -27,6 +28,7 @@ public final class AiController {
     public final Utility utilStrict = new Utility(false);
     public final Utility utilSmart = new Utility(true);
     public final MaceController mace = new MaceController();
+    public final LungeController lunge = new LungeController();
     public final FightTracker tracker = new FightTracker();
     public volatile Ctx lastCtx;
     public volatile Action lastAction;
@@ -67,17 +69,19 @@ public final class AiController {
             a = ctl.decide(ctx, tracker, cfg);     // ML without a model runs the Strict rules
         }
         util.apply(a, ctx, cfg, mlActive ? false : ctl.busy(), ctx.reachDist <= cfg.reach - cfg.reachMargin - tracker.reachPenalty);
-        boolean maceActive = mace.apply(a, ctx, cfg);
+        boolean lungeActive = lunge.apply(a, ctx, cfg);
+        boolean maceActive = !lungeActive && mace.apply(a, ctx, cfg);
         ActionApplier.mask(a, cfg);
         // Last line of defence against ghost hits: a real click on anything but the target is a miss (and a miss resets the cooldown).
-        if (a.attack && cfg.inputMode == InputMode.INPUT && !ctx.crosshairOnTarget) a.attack = false;
+        if (a.attack && cfg.inputMode == InputMode.INPUT && !a.snapAim && !ctx.crosshairOnTarget) a.attack = false;
         ActionApplier.apply(mc, a, target, cfg);
         if (a.attack) tracker.onAttack();
         if (!mlActive) Recorder.INSTANCE.record(ctx, cfg, a);   // only rule-mode fights make training data
         holdingKeys = true;
         lastCtx = ctx; lastAction = a;
 
-        if (mlActive) status = "ML | combo " + tracker.combo + (maceActive || (cfg.kit == dev.pvpai.config.Kit.MACE && !mace.state.isEmpty()) ? " | " + mace.state : "");
+        if (mlActive) status = "ML | combo " + tracker.combo + (lungeActive || (cfg.spearLunge && !lunge.state.isEmpty()) ? " | " + lunge.state : "")
+                + (maceActive || (cfg.kit == dev.pvpai.config.Kit.MACE && !mace.state.isEmpty()) ? " | " + mace.state : "");
         else status = ctl.phase + " | combo " + tracker.combo + " | crits " + ctl.critsFired
                 + (maceActive || (cfg.kit == dev.pvpai.config.Kit.MACE && !mace.state.isEmpty()) ? " | " + mace.state : "") + (cfg.mode == AiMode.ML ? " | ML>strict" : "");
     }
@@ -111,7 +115,7 @@ public final class AiController {
         return (ModConfig.get().mode == AiMode.SMART ? utilSmart : utilStrict).state;
     }
 
-    private void resetFight() { strict.reset(); smart.reset(); utilStrict.reset(); utilSmart.reset(); mace.reset(); tracker.reset(); }
+    private void resetFight() { strict.reset(); smart.reset(); utilStrict.reset(); utilSmart.reset(); mace.reset(); lunge.reset(); tracker.reset(); }
 
     private LivingEntity findTarget(MinecraftClient mc, double range) {
         PlayerEntity best = null;
