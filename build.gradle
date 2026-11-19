@@ -8,7 +8,20 @@ group = project.maven_group
 base { archivesName = project.archives_base_name }
 
 repositories {
-    maven { url = 'https://maven.isxander.dev/releases' }
+    // Repositories for Fabric/Minecraft dependencies and their transitive libraries.
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+    maven {
+        name = 'Mojang'
+        url = 'https://libraries.minecraft.net/'
+    }
+    mavenCentral()
+    maven {
+        name = 'Xander'
+        url = 'https://maven.isxander.dev/releases'
+    }
 }
 
 dependencies {

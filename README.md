@@ -5,7 +5,7 @@ left-click a module to switch it, right-click it for its settings. `]` toggles t
 
 Build: push to GitHub and run the workflow, or `gradle build`. Needs Fabric API and YACL (YACL is only used for the server allowlist editor).
 
-## 0.8.0
+## 0.7.5
 - Uppercut: hit first, then jump N ticks later (adjustable: also together, or jump first), then S.
 - KB displacement: the hit now goes out on the turn-back tick (before that tick's rotation packet), which is what displaces the knockback.
   Flick angle, flick length and hit delay are adjustable.
