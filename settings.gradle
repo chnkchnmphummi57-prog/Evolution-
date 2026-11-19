@@ -1,6 +1,8 @@
 pluginManagement {
     repositories {
+        // Resolve plugin transitive dependencies through a Central mirror first.
         maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        maven { name = 'Google Maven Central mirror'; url = 'https://maven-central.storage-download.googleapis.com/maven2/' }
         mavenCentral()
         gradlePluginPortal()
     }

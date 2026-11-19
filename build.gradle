@@ -17,6 +17,11 @@ repositories {
         name = 'Mojang'
         url = 'https://libraries.minecraft.net/'
     }
+    // Central mirror helps avoid transient Maven Central artifact-download failures.
+    maven {
+        name = 'Google Maven Central mirror'
+        url = 'https://maven-central.storage-download.googleapis.com/maven2/'
+    }
     mavenCentral()
     maven {
         name = 'Xander'
