@@ -118,9 +118,11 @@ public class Main {
         c = world(); c.dist = 5; c.onGround = false; c.velY = 0.5; c.fallDistance = 0; c.selectedSlot = c.windSlot; a = new Action();
         m.apply(a, c, cfg);
         check("4: flying: back to the sword to keep its charge", a.selectSlot == c.swordSlot && !a.attack);
+        check("flight continuously tracks the target", a.aim && a.fastAim && a.goalYaw == c.yawToTarget && a.goalPitch == c.pitchToTarget);
         c = world(); c.dist = 5; c.onGround = false; c.velY = -0.4; c.fallDistance = 3.0; c.reachDist = 2.7; c.cooldown = 1.0f; a = new Action();
         m.apply(a, c, cfg);
         check("5: falling past 1.5 blocks in reach: swaps to the mace and smashes", a.attack && a.selectSlot == c.maceSlot);
+        check("smash requests a fresh same-tick hitbox pick", a.snapAim);
 
         System.out.println("Mace chain: does not break after a landed hit");
         m = new MaceController();
@@ -159,6 +161,7 @@ public class Main {
         c = world(); c.onGround = false; c.velY = 0.2; c.tBlocking = true; c.reachDist = 2.7; c.cooldown = 0.1f; a = new Action();
         m.apply(a, c, cfg);
         check("opponent blocking in the air: axe hit first", a.attack && a.selectSlot == c.axeSlot);
+        check("stun axe hit requests a fresh same-tick hitbox pick", a.snapAim);
         c = world(); c.onGround = false; c.velY = -0.3; c.fallDistance = 2.5; c.tBlocking = true; c.reachDist = 2.7; c.cooldown = 0.1f; a = new Action();
         m.apply(a, c, cfg);
         check("one tick later: waits (stun delay 1)", !a.attack);

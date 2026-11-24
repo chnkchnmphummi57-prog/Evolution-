@@ -2,6 +2,7 @@ package dev.pvpai.rules;
 
 import dev.pvpai.act.Action;
 import dev.pvpai.config.Kit;
+import dev.pvpai.config.InputMode;
 import dev.pvpai.config.ModConfig;
 import dev.pvpai.observe.Ctx;
 
@@ -110,15 +111,29 @@ public final class MaceController {
                 else state = "mace: wind charge";
             }
             case FLY -> {
-                a.selectSlot = hold; a.forward = true; a.sprint = false; a.fastAim = true;
-                boolean aimed = !cfg.requireCrosshair || c.crosshairOnTarget;
+                a.selectSlot = hold;
+                a.forward = true;
+                a.sprint = false;
+                // Keep the camera tracking the target throughout the flight. The old controller
+                // inherited the previous combat controller's aim, which could point elsewhere.
+                a.aim = true;
+                a.goalYaw = c.yawToTarget;
+                a.goalPitch = c.pitchToTarget;
+                a.fastAim = true;
+                // INPUT mode can make a fresh, exact crosshair pick on the same tick as the
+                // smash (below). Requiring last tick's crosshair here prevented that snap from
+                // ever happening, so the mace would simply land without attempting a hit.
+                boolean aimed = !cfg.requireCrosshair || cfg.inputMode == InputMode.INPUT || c.crosshairOnTarget;
                 boolean hurtOk = !cfg.hurtGuard || c.tHurtTime <= 1;
                 boolean inReach = c.reachDist <= cfg.reach - cfg.reachMargin;
 
                 // Stun slam: opponent blocking in the air -> axe their shield first (works at any charge), then slam.
                 if (cfg.stunSlam && c.tBlocking && !stunDone && c.axeSlot >= 0 && !c.onGround && inReach && aimed) {
-                    a.selectSlot = c.axeSlot; a.attack = true;
-                    stunDone = true; stunWait = Math.max(0, cfg.stunSlamDelay);
+                    a.selectSlot = c.axeSlot;
+                    a.attack = true;
+                    a.snapAim = true;                 // refresh the hitbox pick after the aim snap
+                    stunDone = true;
+                    stunWait = Math.max(0, cfg.stunSlamDelay);
                     state = "mace: stun (axe)";
                     return true;
                 }
@@ -130,6 +145,7 @@ public final class MaceController {
                 if (smash) {
                     if (swap || stunDone) a.selectSlot = smashSlot;                               // attribute swap: sword charge, mace hit
                     a.attack = true;
+                    a.snapAim = true;                 // INPUT mode must click the target at the new rotation
                     p = P.IDLE; cooldown = cfg.windCooldownTicks;
                     awaitHit = 10; smashHealth = c.tHealth;
                     state = "mace: smash";
