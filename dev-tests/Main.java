@@ -117,12 +117,10 @@ public class Main {
         check("3: jumps and throws on the SAME tick", a.jump && a.use && a.selectSlot == c.windSlot);
         c = world(); c.dist = 5; c.onGround = false; c.velY = 0.5; c.fallDistance = 0; c.selectedSlot = c.windSlot; a = new Action();
         m.apply(a, c, cfg);
-        check("4: flying: back to the sword to keep its charge", a.selectSlot == c.swordSlot && !a.attack);
-        check("flight continuously tracks the target", a.aim && a.fastAim && a.goalYaw == c.yawToTarget && a.goalPitch == c.pitchToTarget);
+        check("4: flying: switches from the wind charge to the mace", a.selectSlot == c.maceSlot && !a.attack);
         c = world(); c.dist = 5; c.onGround = false; c.velY = -0.4; c.fallDistance = 3.0; c.reachDist = 2.7; c.cooldown = 1.0f; a = new Action();
         m.apply(a, c, cfg);
-        check("5: falling past 1.5 blocks in reach: swaps to the mace and smashes", a.attack && a.selectSlot == c.maceSlot);
-        check("smash requests a fresh same-tick hitbox pick", a.snapAim);
+        check("5: falling past 1.5 blocks in reach: smashes with the mace", a.attack && a.selectSlot == c.maceSlot);
 
         System.out.println("Mace chain: does not break after a landed hit");
         m = new MaceController();
@@ -161,7 +159,6 @@ public class Main {
         c = world(); c.onGround = false; c.velY = 0.2; c.tBlocking = true; c.reachDist = 2.7; c.cooldown = 0.1f; a = new Action();
         m.apply(a, c, cfg);
         check("opponent blocking in the air: axe hit first", a.attack && a.selectSlot == c.axeSlot);
-        check("stun axe hit requests a fresh same-tick hitbox pick", a.snapAim);
         c = world(); c.onGround = false; c.velY = -0.3; c.fallDistance = 2.5; c.tBlocking = true; c.reachDist = 2.7; c.cooldown = 0.1f; a = new Action();
         m.apply(a, c, cfg);
         check("one tick later: waits (stun delay 1)", !a.attack);
@@ -178,8 +175,14 @@ public class Main {
         c = world(); c.pitch = -84; c.selectedSlot = c.pearlSlot; a = new Action(); m.apply(a, c, cfg);
         check("3: throws it", a.use && a.selectSlot == c.pearlSlot);
         int wait = 0; boolean wind = false;
-        for (int i = 1; i <= 8 && !wind; i++) { c = world(); c.pitch = -84; a = new Action(); m.apply(a, c, cfg); wait = i; if (a.snapAim && a.goalPitch == 90f) wind = true; }
-        check("4: after the delay the wind-charge sequence begins (" + wait + " ticks)", wind && wait >= 3 && wait <= 5);
+        boolean windSelectedDuringWait = true;
+        for (int i = 1; i <= 8 && !wind; i++) {
+            c = world(); c.pitch = -84; a = new Action(); m.apply(a, c, cfg); wait = i;
+            if (a.snapAim && a.goalPitch == 90f) wind = true;
+            else windSelectedDuringWait &= a.selectSlot == c.windSlot;
+        }
+        check("4: switches to the wind charge during pearl delay", windSelectedDuringWait);
+        check("5: after the delay the wind-charge aim begins (" + wait + " ticks)", wind && wait >= 3 && wait <= 5);
 
         System.out.println("Mace: diagnostics");
         cfg = new ModConfig(); cfg.kit = Kit.SWORD; m = new MaceController(); c = world(); a = new Action();

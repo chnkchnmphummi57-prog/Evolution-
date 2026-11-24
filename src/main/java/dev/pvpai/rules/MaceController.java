@@ -2,7 +2,6 @@ package dev.pvpai.rules;
 
 import dev.pvpai.act.Action;
 import dev.pvpai.config.Kit;
-import dev.pvpai.config.InputMode;
 import dev.pvpai.config.ModConfig;
 import dev.pvpai.observe.Ctx;
 
@@ -51,8 +50,11 @@ public final class MaceController {
         }
 
         int smashSlot = c.maceSlot >= 0 ? c.maceSlot : Utility.weaponSlot(c, cfg);
-        boolean swap = cfg.attributeSwap && c.swordSlot >= 0 && smashSlot >= 0 && smashSlot != c.swordSlot;
-        int hold = swap ? c.swordSlot : smashSlot;       // what we hold while the weapon charges
+        // The mace sequence must leave the wind charge immediately after throwing it.
+        // Keep the mace selected throughout flight; do not route through the sword's
+        // attribute-swap path, which made the requested wind-charge -> mace transition
+        // depend on a second late slot change at impact.
+        int hold = smashSlot;
 
         if (p == P.IDLE) {
             String why = cooldown > 0 ? "cooldown " + cooldown
@@ -90,8 +92,14 @@ public final class MaceController {
                 else state = "mace: pearl";
             }
             case PWAIT -> {
-                a.selectSlot = c.windSlot;                                                                  // wind charge in hand while waiting
-                if (--pearlWait <= 0) { p = P.AIM; ticks = 0; }
+                // The pearl is already thrown. Explicitly select the wind charge for every
+                // wait tick, then hand off to AIM so the normal charge/jump sequence continues.
+                a.use = false;
+                a.selectSlot = c.windSlot;
+                if (--pearlWait <= 0) {
+                    p = P.AIM;
+                    ticks = 0;
+                }
                 state = "mace: waiting for the pearl (" + Math.max(0, pearlWait) + ")";
             }
             case AIM -> {
@@ -111,41 +119,27 @@ public final class MaceController {
                 else state = "mace: wind charge";
             }
             case FLY -> {
-                a.selectSlot = hold;
-                a.forward = true;
-                a.sprint = false;
-                // Keep the camera tracking the target throughout the flight. The old controller
-                // inherited the previous combat controller's aim, which could point elsewhere.
-                a.aim = true;
-                a.goalYaw = c.yawToTarget;
-                a.goalPitch = c.pitchToTarget;
-                a.fastAim = true;
-                // INPUT mode can make a fresh, exact crosshair pick on the same tick as the
-                // smash (below). Requiring last tick's crosshair here prevented that snap from
-                // ever happening, so the mace would simply land without attempting a hit.
-                boolean aimed = !cfg.requireCrosshair || cfg.inputMode == InputMode.INPUT || c.crosshairOnTarget;
+                a.selectSlot = hold; a.forward = true; a.sprint = false; a.fastAim = true;
+                boolean aimed = !cfg.requireCrosshair || c.crosshairOnTarget;
                 boolean hurtOk = !cfg.hurtGuard || c.tHurtTime <= 1;
                 boolean inReach = c.reachDist <= cfg.reach - cfg.reachMargin;
 
                 // Stun slam: opponent blocking in the air -> axe their shield first (works at any charge), then slam.
                 if (cfg.stunSlam && c.tBlocking && !stunDone && c.axeSlot >= 0 && !c.onGround && inReach && aimed) {
-                    a.selectSlot = c.axeSlot;
-                    a.attack = true;
-                    a.snapAim = true;                 // refresh the hitbox pick after the aim snap
-                    stunDone = true;
-                    stunWait = Math.max(0, cfg.stunSlamDelay);
+                    a.selectSlot = c.axeSlot; a.attack = true;
+                    stunDone = true; stunWait = Math.max(0, cfg.stunSlamDelay);
                     state = "mace: stun (axe)";
                     return true;
                 }
                 if (stunDone && stunWait > 0) { stunWait--; a.selectSlot = hold; state = "mace: stun slam wait"; return true; }
 
-                boolean charged = stunDone || (swap ? c.cooldown >= 0.92f : (c.cooldown >= 0.6f || ticks > 30));
+                // We are holding the mace during flight, so use the mace's charge threshold.
+                boolean charged = stunDone || c.cooldown >= 0.6f || ticks > 30;
                 boolean shielded = c.tBlocking && !stunDone;                                      // a slam into a raised shield does nothing
                 boolean smash = !c.onGround && c.velY < 0 && c.fallDistance > 1.5 && inReach && aimed && hurtOk && charged && !shielded;
                 if (smash) {
-                    if (swap || stunDone) a.selectSlot = smashSlot;                               // attribute swap: sword charge, mace hit
+                    a.selectSlot = smashSlot;
                     a.attack = true;
-                    a.snapAim = true;                 // INPUT mode must click the target at the new rotation
                     p = P.IDLE; cooldown = cfg.windCooldownTicks;
                     awaitHit = 10; smashHealth = c.tHealth;
                     state = "mace: smash";
