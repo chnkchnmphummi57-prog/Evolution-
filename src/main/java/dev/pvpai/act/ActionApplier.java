@@ -32,7 +32,7 @@ import java.util.Map;
  * Mouse & keyboard mode sends REAL key events: the same two static calls the game's own keyboard and mouse handlers make for a
  * physical press (KeyBinding.setKeyPressed + KeyBinding.onKeyPressed). The attack is a real left-click press, so the game itself
  * runs its normal click logic (crosshair pick, cooldown, swing, packets) instead of us forcing an attack at a chosen moment.
- * Camera turning goes through changeLookDirection, the same call real mouse movement makes (see CameraSmoother).
+ * Camera turning uses the shared degree-based smoother (see CameraSmoother), avoiding mouse-sensitivity distortion.
  */
 public final class ActionApplier {
     private ActionApplier() { }
@@ -137,15 +137,20 @@ public final class ActionApplier {
             real(o.jumpKey, a.jump);                                // the space bar
         }
 
-        real(o.useKey, a.use);                                      // shield block / eating / throwing
-
+        // Apply the selected hotbar slot before queuing a use-key press. This matters for
+        // pearl -> wind-charge and wind-charge -> mace handoffs: the queued click must use
+        // the newly selected item, not whichever item was held at the start of the tick.
         inventory(mc, p, a);
+
+        real(o.useKey, a.use);                                      // shield block / eating / throwing
 
         if (a.aim) {
             if (a.snapAim) CameraSmoother.snap(p, a.goalYaw, a.goalPitch);   // an instant flick, sent to the server this tick
             CameraSmoother.setGoal(a.goalYaw, a.goalPitch, a.fastAim);
         }
-        if (a.attack && a.snapAim && cfg.inputMode == InputMode.INPUT) refreshCrosshair(mc, p, target, a);
+        // A snapped rotation invalidates the crosshair result cached from the previous frame.
+        // Re-raycast for both input modes so packet attacks obey the same hitbox gate as real clicks.
+        if (a.attack && a.snapAim && cfg.requireCrosshair) refreshCrosshair(mc, p, target, a);
         if (a.lunge) lunge(mc, p, a, cfg);
         if (a.attack) attack(mc, p, target, cfg);
     }
@@ -155,6 +160,7 @@ public final class ActionApplier {
      * miss. Recompute it for the new angle; if the new angle really is on the target, a click now registers like a manual one.
      */
     private static void refreshCrosshair(MinecraftClient mc, ClientPlayerEntity p, Entity target, Action a) {
+        if (target == null) { a.attack = false; return; }
         Box tight = target.getBoundingBox().expand(-0.02);
         Vec3d eye = p.getEyePos();
         Vec3d dir = Vec3d.fromPolar(p.getPitch(), p.getYaw());

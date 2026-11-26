@@ -227,11 +227,26 @@ public class Main {
             Action t1 = r.step(base());
             check("tick 1: hits", t1.attack);
         }
-        System.out.println("Uppercut: same tick (0)");
+        System.out.println("Uppercut: jump + S + W release on the hit tick, then repeat after landing");
         {
             Rig r = plain(); r.cfg.uppercut = true; r.cfg.uppercutChance = 100; r.cfg.uppercutJumpDelay = 0;
+            r.cfg.uppercutSTapDelay = 0; r.cfg.uppercutRepeats = 2; r.cfg.sTapTicks = 3;
             Action t0 = r.step(base());
-            check("tick 0: jump and hit together", t0.jump && t0.attack);
+            check("tick 0: jump + hit + S, with W released", t0.jump && t0.attack && t0.back && !t0.forward && !t0.sprint && t0.stopSprint);
+            Action repeated = null;
+            for (int i = 0; i < 14; i++) {
+                Ctx c = base(); c.cooldown = 0.1f;
+                Action next = r.step(c);
+                if (next.jump) { repeated = next; break; }
+            }
+            check("after landing: repeats jump + S without forcing another hit", repeated != null && repeated.back && !repeated.forward && !repeated.attack && repeated.stopSprint);
+
+            Rig single = plain(); single.cfg.uppercut = true; single.cfg.uppercutChance = 100;
+            single.cfg.uppercutJumpDelay = 0; single.cfg.uppercutRepeats = 1;
+            single.step(base());
+            boolean didRepeat = false;
+            for (int i = 0; i < 14; i++) { Ctx c = base(); c.cooldown = 0.1f; if (single.step(c).jump) didRepeat = true; }
+            check("repeat count 1 disables the second jump", !didRepeat);
         }
         System.out.println("KB displacement: hit on the turn-back tick");
         {

@@ -50,8 +50,9 @@ public final class ModConfig {
     public int circleTicks = 30;             // circle strafing: ticks per direction (hold W + A or D around the opponent)
     public boolean uppercut = true;          // jump and hit together, then S
     public int uppercutChance = 10;
-    public int uppercutJumpDelay = 1;        // >0: hit first, jump this many ticks later. 0: together. <0: jump first, hit this many ticks later
+    public int uppercutJumpDelay = 0;        // >0: hit first, jump this many ticks later. 0: together. <0: jump first, hit this many ticks later
     public int uppercutSTapDelay = 0;        // ticks after the jump until S is pressed (0 = at the same time as the jump)
+    public int uppercutRepeats = 2;          // total jump + S-tap cycles per uppercut (1-3)
     public boolean kbDisplace = false;       // flick the camera 180 degrees, turn back the next tick, hit a tick later
     public int kbDisplaceChance = 25;
     public int kbAngle = 180;                // how far the camera flicks (180 = straight behind, 90 = to the side)
@@ -109,7 +110,7 @@ public final class ModConfig {
     public InputMode inputMode = InputMode.INPUT;
     public JumpInput jumpInput = JumpInput.KEY;
     public int cameraSmoothness = 60;        // 0 = snappy, 100 = very smooth
-    public int maxTurnDegPerTick = 18;
+    public int maxTurnDegPerTick = 45;
     public HotKey menuKey = HotKey.LEFT_BRACKET, toggleKey = HotKey.RIGHT_BRACKET, hudKey = HotKey.BACKSLASH;
 
     // Spacing fallbacks and targeting
@@ -164,19 +165,29 @@ public final class ModConfig {
         if (instance.allowedServers == null) instance.allowedServers = new ArrayList<>();
         if (instance.lungeInput == null) instance.lungeInput = d.lungeInput;
         if (instance.uiFont == null) instance.uiFont = d.uiFont;
-        if (instance.configVersion < 9) {        // v0.9: shorter lunge cooldown (the lunge now chains)
-            if (instance.lungeCooldownTicks == 30) instance.lungeCooldownTicks = 15;
-            instance.configVersion = 9;
-        }
-        if (instance.configVersion < 8) {        // v0.8: the KB displacement hit now happens on the turn-back tick
-            instance.kbHitDelay = 0;
-            instance.configVersion = 8;
-        }
+        // Apply migrations in ascending order. Running a newer migration first would
+        // advance configVersion and silently skip the older migrations below it.
         if (instance.configVersion < 7) {        // v0.7: new defaults for spacing and look
             instance.reachMargin = 0.03;
             instance.accent = AccentColor.INDIGO;
             instance.sTapChance = Math.min(instance.sTapChance, 60);
             instance.configVersion = 7;
+        }
+        if (instance.configVersion < 8) {        // v0.8: the KB displacement hit now happens on the turn-back tick
+            instance.kbHitDelay = 0;
+            instance.configVersion = 8;
+        }
+        if (instance.configVersion < 9) {        // v0.9: shorter lunge cooldown (the lunge now chains)
+            if (instance.lungeCooldownTicks == 30) instance.lungeCooldownTicks = 15;
+            instance.configVersion = 9;
+        }
+        if (instance.configVersion < 10) {       // v0.7.5: uppercut defaults to jump + S on the hit tick
+            if (instance.uppercutJumpDelay == 1) instance.uppercutJumpDelay = 0;
+            instance.configVersion = 10;
+        }
+        if (instance.configVersion < 11) {       // v0.7.5 camera: decouple smoothness from tracking speed
+            if (instance.maxTurnDegPerTick == 18) instance.maxTurnDegPerTick = 45;
+            instance.configVersion = 11;
         }
         instance.enabled = false;
     }

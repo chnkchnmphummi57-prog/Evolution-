@@ -33,7 +33,7 @@ public final class StrictController {
     private ModConfig cfgRef;
     private int phaseTicks, strafeTick, tapLeft, tapDelay, pendingTicks, attackDelay = -1, critCooldown, jumpCooldown,
             counterTicks, idleTicks, resetPending, punishFails, blockWait, snapTicks, retreatLeft, retreatCooldown,
-            upSWait = -1, upAttackIn, upJumpIn, kbState, kbWait, kbTicks, kbFlickLeft;
+            upSWait = -1, upAttackIn, upJumpIn, upRepeatsLeft, kbState, kbWait, kbTicks, kbFlickLeft;
     private boolean strafeRight = true, pendingCrit, cycleRolled, cycleCrit, punishCombo;
     private int kbSide = 1;
     private Tap tapType = Tap.NONE;
@@ -46,7 +46,7 @@ public final class StrictController {
         phase = Phase.NORMAL; phaseTicks = 0; tapLeft = 0; tapDelay = 0; pendingCrit = false; attackDelay = -1; critsFired = 0;
         critCooldown = 0; jumpCooldown = 0; counterTicks = 0; idleTicks = 0; resetPending = 0; punishFails = 0;
         blockWait = 0; snapTicks = 0; retreatLeft = 0; retreatCooldown = 0; upSWait = -1; upAttackIn = 0; upJumpIn = 0;
-        kbState = 0; kbWait = 0; kbTicks = 0; kbFlickLeft = 0;
+        kbState = 0; kbWait = 0; kbTicks = 0; kbFlickLeft = 0; upRepeatsLeft = 0;
         cycleRolled = false; cycleCrit = false; punishCombo = false; tapType = Tap.NONE;
         java.util.Arrays.fill(ctr, 0);
     }
@@ -229,6 +229,16 @@ public final class StrictController {
             }
         }
 
+        // Repeat the uppercut movement after landing: jump + S together, with W released.
+        // This is a movement repeat only; it does not force an extra attack.
+        boolean uppercutRepeatJump = false;
+        if (!cfg.uppercut || !cfg.jump) upRepeatsLeft = 0;
+        if (upRepeatsLeft > 0 && cfg.uppercut && cfg.jump && c.onGround && jumpCooldown == 0 && upSWait < 0 && tapLeft == 0 && upJumpIn == 0 && upAttackIn == 0) {
+            startUpJump(a, cfg);
+            upRepeatsLeft--;
+            uppercutRepeatJump = true;
+        }
+
         // ---- Attack ----
         boolean comboMode = phase == Phase.CRIT_PUNISH && punishCombo;
         boolean critAllowed = cfg.crit && cfg.jump && f.combo < comboLock && !counter && !comboMode;
@@ -240,7 +250,7 @@ public final class StrictController {
             if (inReach && look && clear) { a.attack = true; upHit = true; }
         }
 
-        if (!a.attack) {
+        if (!a.attack && !uppercutRepeatJump) {
             if (pendingCrit) {
                 pendingTicks++;
                 boolean airborne = !c.onGround;
@@ -266,6 +276,7 @@ public final class StrictController {
                             && jumpCooldown == 0 && chance(cfg.uppercutChance, 7);
                     boolean kbFlick = !uppercut && cfg.kbDisplace && !spamStrat && !safe && !counter && chance(cfg.kbDisplaceChance, 6);
                     if (uppercut) {
+                        upRepeatsLeft = Math.max(0, Math.min(3, cfg.uppercutRepeats) - 1);
                         int d = cfg.uppercutJumpDelay;
                         if (d >= 0) { a.attack = true; upHit = true; }                        // hit first (or together with the jump)
                         if (d == 0) startUpJump(a, cfg);                                       // same tick
@@ -295,7 +306,7 @@ public final class StrictController {
         if (a.attack) { idleTicks = 0; cycleRolled = false; cycleCrit = false; }
 
         // Uppercut: S is pressed upSWait ticks after the jump (0 = at the same time as the jump)
-        if (upSWait == 0) { tapType = Tap.S; tapLeft = Math.max(0, cfg.sTapTicks - 1); a.back = true; a.forward = false; a.sprint = false; upSWait = -1; }
+        if (upSWait == 0) { tapType = Tap.S; tapLeft = Math.max(0, cfg.sTapTicks - 1); a.back = true; a.forward = false; a.sprint = false; a.stopSprint = true; upSWait = -1; }
         else if (upSWait > 0) upSWait--;
 
         // What follows a normal hit. The tap starts on the SAME tick as the hit (S-tap can be delayed one tick).
@@ -337,7 +348,10 @@ public final class StrictController {
     }
 
     private void startUpJump(Action a, ModConfig cfg) {
-        a.jump = true; jumpCooldown = 10; upSWait = Math.max(0, cfg.uppercutSTapDelay);       // S follows the jump by uppercutSTapDelay
+        a.jump = true;
+        a.forward = false; a.sprint = false; a.stopSprint = true;
+        jumpCooldown = 10;
+        upSWait = Math.max(0, cfg.uppercutSTapDelay);       // S follows the jump by uppercutSTapDelay
     }
 
     /** Strict: every Nth time (first one fires). Smart: random. */

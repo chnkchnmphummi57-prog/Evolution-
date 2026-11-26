@@ -41,12 +41,52 @@ public final class Theme {
     public static int w(TextRenderer tr, String s) { return tr.getWidth(t(s)); }
     public static int w(TextRenderer tr, Text s) { return tr.getWidth(s); }
 
-    /** Cuts the string so it fits max pixels in the selected font. */
+    /** Truncates a single-line value without leaving a misleading hard cut. */
     public static String trim(TextRenderer tr, String s, int max) {
+        if (max <= 0) return "";
         if (w(tr, s) <= max) return s;
+        String suffix = "…";
         int end = s.length();
-        while (end > 0 && w(tr, s.substring(0, end)) > max) end--;
-        return s.substring(0, end);
+        while (end > 0 && w(tr, s.substring(0, end) + suffix) > max) end--;
+        return end == 0 ? suffix : s.substring(0, end).stripTrailing() + suffix;
+    }
+
+    /** Word-wraps a description into at most maxLines lines using the active UI font. */
+    public static java.util.List<String> wrap(TextRenderer tr, String value, int maxWidth, int maxLines) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (value == null || value.isBlank() || maxLines <= 0 || maxWidth <= 0) return out;
+        StringBuilder line = new StringBuilder();
+        for (String word : value.trim().split("\\s+")) {
+            String candidate = line.length() == 0 ? word : line + " " + word;
+            if (w(tr, candidate) <= maxWidth) {
+                line.setLength(0); line.append(candidate);
+                continue;
+            }
+            if (line.length() > 0) {
+                out.add(line.toString());
+                line.setLength(0);
+                if (out.size() >= maxLines) break;
+            }
+            // Long unbroken words are split safely instead of being drawn past the panel edge.
+            String part = "";
+            for (int i = 0; i < word.length(); i++) {
+                String next = part + word.charAt(i);
+                if (!part.isEmpty() && w(tr, next) > maxWidth) {
+                    out.add(part); part = String.valueOf(word.charAt(i));
+                    if (out.size() >= maxLines) break;
+                } else part = next;
+            }
+            if (out.size() >= maxLines) break;
+            line.append(part);
+        }
+        if (out.size() < maxLines && line.length() > 0) out.add(line.toString());
+        if (out.size() == maxLines) {
+            String last = out.get(maxLines - 1);
+            // Add an ellipsis when the input did not fit in the allotted lines.
+            String joined = String.join(" ", out);
+            if (!value.trim().equals(joined) && !last.endsWith("…")) out.set(maxLines - 1, trim(tr, last + "…", maxWidth));
+        }
+        return out;
     }
 
     public static int accent(ModConfig cfg) {

@@ -23,7 +23,7 @@ import java.util.List;
  * Only the two text boxes (search, watermark text) are vanilla widgets, because typing needs them.
  */
 public final class PvpAiScreen extends Screen {
-    private static final int RH = 24, SRH = 27, SW = 106;
+    private static final int RH = 42, SRH = 46, SW = 106;
     private static final Cat[] TOP = {Cat.COMBAT, Cat.MOVEMENT, Cat.MODERN, Cat.MACE, Cat.VISUAL};
     private static final Cat[] GEN = {Cat.ML, Cat.SETTINGS};
 
@@ -54,8 +54,8 @@ public final class PvpAiScreen extends Screen {
         open = null;
         if (openName != null) for (Module m : modules) if (m.name.equals(openName)) open = m;
 
-        pw = Math.min(460, width - 8);
-        ph = Math.min(264, height - 8);
+        pw = Math.min(560, width - 8);
+        ph = Math.min(360, height - 8);
         px = (width - pw) / 2;
         py = (height - ph) / 2;
         cx = px + SW + 14;
@@ -190,7 +190,7 @@ public final class PvpAiScreen extends Screen {
             Text t1 = Theme.boldItalic(open.name);
             Theme.text(g, tr, t1, cx, hy, ac, true);
             Theme.text(g, tr, Theme.bold(" Settings"), cx + Theme.w(tr, t1), hy, Theme.TEXT, true);
-            Theme.text(g, tr, Theme.trim(tr, open.desc, cw), cx, hy + 13, Theme.MUTED, false);
+            drawWrapped(g, tr, open.desc, cx, hy + 13, cw, 2, Theme.MUTED);
             boolean hov = Theme.in(mx, my, cx, py + 38, 48, 12);
             Theme.text(g, tr, "< Back", cx, py + 40, hov ? ac : Theme.DIM, false);
             if (hov && cl) { open = null; scroll = 0; }
@@ -215,7 +215,7 @@ public final class PvpAiScreen extends Screen {
             boolean hov = Theme.in(mx, my, rx, y, rw, RH) && !dragScroll;
             if (hov) Theme.rounded(g, rx, y, rw, RH - 1, 5, Theme.CARD_HOVER);
             Theme.text(g, tr, Theme.bold(m.name), rx + 10, y + 4, Theme.TEXT, false);
-            Theme.text(g, tr, Theme.trim(tr, m.desc, rw - 96), rx + 10, y + 14, Theme.MUTED, false);
+            drawWrapped(g, tr, m.desc, rx + 10, y + 13, Math.max(60, rw - 96), 3, Theme.MUTED);
             if (m.on != null) {
                 if (!m.settings.isEmpty()) Theme.text(g, tr, "...", rx + rw - 54, y + 6, Theme.MUTED, false);
                 toggleSwitch(g, rx + rw - 36, y + 6, m.on.get(), ac);
@@ -248,7 +248,7 @@ public final class PvpAiScreen extends Screen {
             int y = top + 4 + i * SRH;
             boolean hov = Theme.in(mx, my, rx, y, rw, SRH) && !dragScroll;
             Theme.text(g, tr, Theme.bold(s.name), rx + 10, y + 4, Theme.TEXT, false);
-            Theme.text(g, tr, Theme.trim(tr, s.desc, rw - 190), rx + 10, y + 15, Theme.MUTED, false);
+            drawWrapped(g, tr, s.desc, rx + 10, y + 14, Math.max(44, rw - 210), 3, Theme.MUTED);
             int right = rx + rw - 10;
             switch (s.kind) {
                 case TOGGLE -> {
@@ -308,6 +308,11 @@ public final class PvpAiScreen extends Screen {
     }
 
     // ------------------------------------------------------------------ pieces
+
+    private void drawWrapped(DrawContext g, TextRenderer tr, String value, int x, int y, int maxWidth, int maxLines, int color) {
+        List<String> lines = Theme.wrap(tr, value, maxWidth, maxLines);
+        for (int i = 0; i < lines.size(); i++) Theme.text(g, tr, lines.get(i), x, y + i * 9, color, false);
+    }
 
     private void toggleSwitch(DrawContext g, int x, int y, boolean on, int ac) {
         Theme.rounded(g, x, y, 26, 12, 6, on ? ac : Theme.OFF);

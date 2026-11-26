@@ -123,12 +123,13 @@ public final class Modules {
 
         m.add(new Module("Hit Select", "After taking a hit, counter immediately.", Cat.COMBAT, () -> cfg.hitSelect, v -> cfg.hitSelect = v));
 
-        m.add(new Module("Uppercut", "Hit and jump together, then S. The order is adjustable.", Cat.COMBAT, () -> cfg.uppercut, v -> cfg.uppercut = v,
+        m.add(new Module("Uppercut", "Jump and tap S while releasing W; repeat the movement after landing.", Cat.COMBAT, () -> cfg.uppercut, v -> cfg.uppercut = v,
                 sld("Chance", "Share of hits that become an uppercut.", 0, 100, () -> cfg.uppercutChance, v -> cfg.uppercutChance = v, "%"),
                 sld("Jump timing", "Positive: hit first, then jump that many ticks later. 0: together. Negative: jump first, hit that many ticks later.", -2, 5,
                         () -> cfg.uppercutJumpDelay, v -> cfg.uppercutJumpDelay = v,
                         v -> v > 0 ? "hit, jump +" + v + "t" : v == 0 ? "together" : "jump, hit +" + (-v) + "t"),
-                sld("S delay", "Ticks after the jump until S is pressed. 0 presses it at the same time as the jump.", 0, 10, () -> cfg.uppercutSTapDelay, v -> cfg.uppercutSTapDelay = v, " ticks")));
+                sld("S delay", "Ticks after the jump until S is pressed. 0 presses it at the same time as the jump.", 0, 10, () -> cfg.uppercutSTapDelay, v -> cfg.uppercutSTapDelay = v, " ticks"),
+                sld("Repeats", "Total jump + S-tap cycles per uppercut.", 1, 3, () -> cfg.uppercutRepeats, v -> cfg.uppercutRepeats = v, " times")));
 
         m.add(new Module("KB Displacement", "Flick the camera away, snap back and hit on the same tick, so the server computes the knockback from the flicked angle.", Cat.COMBAT, () -> cfg.kbDisplace, v -> cfg.kbDisplace = v,
                 sld("Chance", "Share of hits that use it.", 0, 100, () -> cfg.kbDisplaceChance, v -> cfg.kbDisplaceChance = v, "%"),
@@ -250,7 +251,7 @@ public final class Modules {
                 cyc("Toggle HUD", "Shows or hides the HUD card.", HotKey.values(), () -> cfg.hudKey, v -> cfg.hudKey = v, x -> x.label)));
         m.add(new Module("Camera", "How the bot turns.", Cat.SETTINGS, null, null,
                 sld("Smoothness", "0 is snappy, 100 is very smooth.", 0, 100, () -> cfg.cameraSmoothness, v -> cfg.cameraSmoothness = v, ""),
-                sld("Max turn", "Degrees per tick the camera may turn.", 2, 60, () -> cfg.maxTurnDegPerTick, v -> cfg.maxTurnDegPerTick = v, " deg/t"),
+                sld("Max turn", "Maximum camera tracking speed. Higher values catch up faster.", 2, 90, () -> cfg.maxTurnDegPerTick, v -> cfg.maxTurnDegPerTick = v, " deg/t"),
                 sld("Reaction jitter", "Smart only: random 0-N ticks of hesitation. 0 reacts on the first tick.", 0, 3, () -> cfg.reactionJitter, v -> cfg.reactionJitter = v, " ticks")));
         m.add(new Module("Server Allowlist", "Servers you own. The AI refuses to run anywhere else.", Cat.SETTINGS, null, null,
                 info("Servers", "Singleplayer is always allowed.", () -> cfg.allowedServers.isEmpty() ? "none" : String.join(", ", cfg.allowedServers)),
