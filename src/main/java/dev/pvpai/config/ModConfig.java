@@ -8,6 +8,8 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +17,7 @@ public final class ModConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pvpai.json");
     private static ModConfig instance;
+    private static volatile String pendingWarning;
 
     public int configVersion = 0;            // used to migrate old saved values
     public AiMode mode = AiMode.STRICT;
@@ -110,7 +113,7 @@ public final class ModConfig {
     public InputMode inputMode = InputMode.INPUT;
     public JumpInput jumpInput = JumpInput.KEY;
     public int cameraSmoothness = 60;        // 0 = snappy, 100 = very smooth
-    public int maxTurnDegPerTick = 45;
+    public int maxTurnDegPerTick = 18;
     public HotKey menuKey = HotKey.LEFT_BRACKET, toggleKey = HotKey.RIGHT_BRACKET, hudKey = HotKey.BACKSLASH;
 
     // Spacing fallbacks and targeting
@@ -141,10 +144,32 @@ public final class ModConfig {
     }
 
     public static void load() {
-        try {
-            if (Files.exists(FILE)) instance = GSON.fromJson(Files.readString(FILE), ModConfig.class);
-        } catch (Exception ignored) { }
+        instance = null;
+        pendingWarning = null;
+        boolean recovered = false;
+        if (Files.exists(FILE)) {
+            try {
+                String json = Files.readString(FILE);
+                ModConfig parsed = GSON.fromJson(json, ModConfig.class);
+                if (parsed == null) throw new IllegalStateException("Config contained no JSON object");
+                instance = parsed;
+            } catch (Exception ex) {
+                Path backup = FILE.resolveSibling(FILE.getFileName() + ".corrupt-" + System.currentTimeMillis() + ".bak");
+                String backupNote;
+                try {
+                    Files.copy(FILE, backup, StandardCopyOption.COPY_ATTRIBUTES);
+                    backupNote = " Original file backed up as " + backup.getFileName() + ".";
+                } catch (IOException backupError) {
+                    backupNote = " Backup also failed: " + backupError.getMessage();
+                }
+                queueWarning("[Evolution] Config could not be read; defaults were loaded." + backupNote);
+                System.err.println("[Evolution] Failed to read config " + FILE + ": " + ex);
+                instance = new ModConfig();
+                recovered = true;
+            }
+        }
         if (instance == null) instance = new ModConfig();
+
         ModConfig d = new ModConfig();           // defaults, used to repair values from older versions
         // Old saves can hold removed enum values (Kit POT, SMP...) which Gson reads as null.
         if (instance.mode == null) instance.mode = d.mode;
@@ -165,34 +190,63 @@ public final class ModConfig {
         if (instance.allowedServers == null) instance.allowedServers = new ArrayList<>();
         if (instance.lungeInput == null) instance.lungeInput = d.lungeInput;
         if (instance.uiFont == null) instance.uiFont = d.uiFont;
-        // Apply migrations in ascending order. Running a newer migration first would
-        // advance configVersion and silently skip the older migrations below it.
+
+        // Migrations must run oldest-to-newest. Each step advances the version only
+        // after its own changes, otherwise an early newer migration skips older steps.
+        boolean migrated = false;
         if (instance.configVersion < 7) {        // v0.7: new defaults for spacing and look
             instance.reachMargin = 0.03;
             instance.accent = AccentColor.INDIGO;
             instance.sTapChance = Math.min(instance.sTapChance, 60);
             instance.configVersion = 7;
+            migrated = true;
         }
-        if (instance.configVersion < 8) {        // v0.8: the KB displacement hit now happens on the turn-back tick
+        if (instance.configVersion < 8) {        // v0.8: KB displacement hit happens on the turn-back tick
             instance.kbHitDelay = 0;
             instance.configVersion = 8;
+            migrated = true;
         }
         if (instance.configVersion < 9) {        // v0.9: shorter lunge cooldown (the lunge now chains)
             if (instance.lungeCooldownTicks == 30) instance.lungeCooldownTicks = 15;
             instance.configVersion = 9;
+            migrated = true;
         }
         if (instance.configVersion < 10) {       // v0.7.5: uppercut defaults to jump + S on the hit tick
             if (instance.uppercutJumpDelay == 1) instance.uppercutJumpDelay = 0;
             instance.configVersion = 10;
-        }
-        if (instance.configVersion < 11) {       // v0.7.5 camera: decouple smoothness from tracking speed
-            if (instance.maxTurnDegPerTick == 18) instance.maxTurnDegPerTick = 45;
-            instance.configVersion = 11;
+            migrated = true;
         }
         instance.enabled = false;
+        if (migrated || recovered) save();
+    }
+
+    private static void queueWarning(String warning) {
+        if (pendingWarning == null) pendingWarning = warning;
+        else pendingWarning += " " + warning;
+    }
+
+    /** Returns and clears the next user-visible config warning, if any. */
+    public static String consumeWarning() {
+        String warning = pendingWarning;
+        pendingWarning = null;
+        return warning;
     }
 
     public static void save() {
-        try { Files.writeString(FILE, GSON.toJson(get())); } catch (IOException ignored) { }
+        Path temp = FILE.resolveSibling(FILE.getFileName() + ".tmp");
+        try {
+            Files.createDirectories(FILE.getParent());
+            Files.writeString(temp, GSON.toJson(get()));
+            try {
+                Files.move(temp, FILE, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(temp, FILE, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException ex) {
+            queueWarning("[Evolution] Could not save config. Check that the config folder is writable.");
+            System.err.println("[Evolution] Failed to save config " + FILE + ": " + ex);
+            try { Files.deleteIfExists(temp); } catch (IOException ignored) { }
+        }
     }
+
 }

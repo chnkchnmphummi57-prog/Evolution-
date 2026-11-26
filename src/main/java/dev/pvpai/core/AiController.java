@@ -69,8 +69,12 @@ public final class AiController {
             a = ctl.decide(ctx, tracker, cfg);     // ML without a model runs the Strict rules
         }
         util.apply(a, ctx, cfg, mlActive ? false : ctl.busy(), ctx.reachDist <= cfg.reach - cfg.reachMargin - tracker.reachPenalty);
-        boolean lungeActive = lunge.apply(a, ctx, cfg);
-        boolean maceActive = !lungeActive && mace.apply(a, ctx, cfg);
+        // Utility sequences that own the hotbar/use action (totem, eating, potting, shield break,
+        // or the Mace shield guard) must not be overwritten by the later lunge/mace controllers.
+        // This is action arbitration, not a change to the individual controller algorithms.
+        boolean utilityOwnsAction = util.blocksSpecialControllers();
+        boolean lungeActive = !utilityOwnsAction && lunge.apply(a, ctx, cfg);
+        boolean maceActive = !utilityOwnsAction && !lungeActive && mace.apply(a, ctx, cfg);
         ActionApplier.mask(a, cfg);
         // Last line of defence against ghost hits: a real click on anything but the target is a miss (and a miss resets the cooldown).
         if (a.attack && cfg.inputMode == InputMode.INPUT && !a.snapAim && !ctx.crosshairOnTarget) a.attack = false;

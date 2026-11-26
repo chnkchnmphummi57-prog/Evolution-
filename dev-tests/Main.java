@@ -204,6 +204,44 @@ public class Main {
         check("other kits: unchanged", !a.use);
     }
 
+
+    static void actionPriorityTests() {
+        System.out.println("Action arbitration: utility sequences keep ownership of their actions");
+
+        ModConfig cfg = new ModConfig();
+        cfg.autoTotem = false; cfg.healPots = false; cfg.autoEat = true;
+        Utility u = new Utility(false);
+        Ctx c = base(); c.health = 5; c.foodSlot = 3; c.dist = 5; c.usingItem = false;
+        Action a = new Action();
+        u.apply(a, c, cfg, false, false);
+        check("eating owns the tick; special controllers must not replace the food slot", u.blocksSpecialControllers() && a.selectSlot == c.foodSlot && a.use && !a.attack);
+
+        cfg = new ModConfig();
+        cfg.autoTotem = false; cfg.autoEat = false; cfg.healPots = true;
+        u = new Utility(false);
+        c = base(); c.health = 5; c.potSlot = 2; c.selectedSlot = 0; c.pitch = 0;
+        a = new Action();
+        u.apply(a, c, cfg, false, false);
+        check("healing-pot sequence owns the tick while aiming and selecting the potion", u.blocksSpecialControllers() && a.selectSlot == c.potSlot && !a.attack);
+
+        cfg = new ModConfig();
+        cfg.autoTotem = false; cfg.autoEat = false; cfg.healPots = false;
+        cfg.shieldBreak = true; cfg.shieldDelayMin = 0; cfg.shieldDelayMax = 0;
+        u = new Utility(false);
+        c = base(); c.tBlocking = true; c.axeSlot = 5; c.dist = 3; c.crosshairOnTarget = true;
+        a = new Action();
+        u.apply(a, c, cfg, false, true);
+        check("shield-break axe sequence owns the tick instead of being replaced by a lunge", u.blocksSpecialControllers() && a.selectSlot == c.axeSlot);
+
+        cfg = new ModConfig();
+        cfg.autoTotem = true; cfg.autoEat = false; cfg.healPots = false;
+        u = new Utility(false);
+        c = base(); c.offhandEmpty = true; c.totemSlot = 6; c.selectedSlot = 0;
+        a = new Action();
+        u.apply(a, c, cfg, false, false);
+        check("totem swap owns the hotbar until the offhand swap completes", u.blocksSpecialControllers() && a.swapTotemFrom == c.totemSlot && !a.attack);
+    }
+
     public static void main(String[] args) {
         System.out.println("Uppercut: hit first, jump 1 tick later, S with the jump");
         {
@@ -386,6 +424,7 @@ public class Main {
             }
             check("same direction for 19+ of the first 20 ticks, got " + sameSide, sameSide >= 19);
         }
+        actionPriorityTests();
         lungeTests();
         maceTests();
         System.out.println("\n" + pass + " passed, " + fail + " failed");

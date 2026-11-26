@@ -249,10 +249,17 @@ public final class Modules {
                 cyc("Open menu", "Opens this menu in game.", HotKey.values(), () -> cfg.menuKey, v -> cfg.menuKey = v, x -> x.label),
                 cyc("Toggle AI", "Turns the AI on or off.", HotKey.values(), () -> cfg.toggleKey, v -> cfg.toggleKey = v, x -> x.label),
                 cyc("Toggle HUD", "Shows or hides the HUD card.", HotKey.values(), () -> cfg.hudKey, v -> cfg.hudKey = v, x -> x.label)));
-        m.add(new Module("Camera", "How the bot turns.", Cat.SETTINGS, null, null,
+        m.add(new Module("Camera", "Camera behavior and manual mouse-look options.", Cat.SETTINGS, null, null,
                 sld("Smoothness", "0 is snappy, 100 is very smooth.", 0, 100, () -> cfg.cameraSmoothness, v -> cfg.cameraSmoothness = v, ""),
-                sld("Max turn", "Maximum camera tracking speed. Higher values catch up faster.", 2, 90, () -> cfg.maxTurnDegPerTick, v -> cfg.maxTurnDegPerTick = v, " deg/t"),
-                sld("Reaction jitter", "Smart only: random 0-N ticks of hesitation. 0 reacts on the first tick.", 0, 3, () -> cfg.reactionJitter, v -> cfg.reactionJitter = v, " ticks")));
+                sld("Max turn", "Degrees per tick the camera may turn.", 2, 60, () -> cfg.maxTurnDegPerTick, v -> cfg.maxTurnDegPerTick = v, " deg/t"),
+                sld("Reaction jitter", "Smart only: random 0-N ticks of hesitation. 0 reacts on the first tick.", 0, 3, () -> cfg.reactionJitter, v -> cfg.reactionJitter = v, " ticks"),
+                tog("Manual smooth look", "Uses Minecraft's native smooth-camera option for your own mouse movement.",
+                        () -> MinecraftClient.getInstance().options.smoothCameraEnabled,
+                        v -> {
+                            MinecraftClient mc = MinecraftClient.getInstance();
+                            mc.options.smoothCameraEnabled = v;
+                            mc.options.write();
+                        })));
         m.add(new Module("Server Allowlist", "Servers you own. The AI refuses to run anywhere else.", Cat.SETTINGS, null, null,
                 info("Servers", "Singleplayer is always allowed.", () -> cfg.allowedServers.isEmpty() ? "none" : String.join(", ", cfg.allowedServers)),
                 act("Edit list", "Opens the list editor.", openAllowlist)));

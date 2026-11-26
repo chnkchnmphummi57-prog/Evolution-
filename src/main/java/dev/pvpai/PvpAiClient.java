@@ -26,6 +26,10 @@ public final class PvpAiClient implements ClientModInitializer {
 
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             ModConfig cfg = ModConfig.get();
+            if (mc.player != null) {
+                String configWarning = ModConfig.consumeWarning();
+                if (configWarning != null) mc.player.sendMessage(Text.literal(configWarning), false);
+            }
             // Hotkeys are polled directly (any key from the menu). Poll every tick so edge state stays fresh.
             boolean toggle = Hotkeys.edge(mc, cfg.toggleKey);
             boolean hud = Hotkeys.edge(mc, cfg.hudKey);

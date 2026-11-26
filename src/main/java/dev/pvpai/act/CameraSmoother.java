@@ -46,32 +46,20 @@ public final class CameraSmoother {
         frameSinceTick = false;
     }
 
-    private static void step(ClientPlayerEntity p, float dtTicks) {
+    private static void step(ClientPlayerEntity p, float dt) {
         ModConfig cfg = ModConfig.get();
-
-        // RenderTickCounter reports elapsed game ticks, not seconds. Convert it so the
-        // response feels consistent at 30, 60, 144+ FPS instead of changing with FPS.
-        float safeTicks = Math.max(0.001f, Math.min(2f, dtTicks));
-        float dtSeconds = safeTicks / 20f;
-
-        // Smoothness controls the easing time only. It must NOT reduce the maximum
-        // tracking speed: otherwise a high smoothness setting makes the camera lag.
-        float smoothness = MathHelper.clamp(cfg.cameraSmoothness, 0, 100) / 100f;
-        float timeConstant = 0.018f + 0.062f * smoothness; // 18–80 ms
-        float alpha = 1f - (float) Math.exp(-dtSeconds / timeConstant);
-
-        // Keep the existing configurable turn-rate setting, but use it as a real
-        // per-tick speed limit. The v0.7.5 default is migrated from 18 to 45 deg/tick.
-        float maxSpeed = Math.max(1f, cfg.maxTurnDegPerTick) * (fast ? 1.6f : 1f);
-        float maxStep = maxSpeed * safeTicks;
-
-        float yawError = MathHelper.wrapDegrees(goalYaw - p.getYaw());
-        float pitchError = goalPitch - p.getPitch();
-        float yawStep = MathHelper.clamp(yawError * alpha, -maxStep, maxStep);
-        float pitchStep = MathHelper.clamp(pitchError * alpha, -maxStep, maxStep);
-
-        if (Math.abs(yawStep) < 0.001f && Math.abs(pitchStep) < 0.001f) return;
-        p.setYaw(p.getYaw() + yawStep);
-        p.setPitch(MathHelper.clamp(p.getPitch() + pitchStep, -90f, 90f));
+        float s = cfg.cameraSmoothness / 100f;
+        float perTick = fast ? 0.75f : 0.6f - 0.5f * s;                       // fraction of the remaining error closed per tick
+        float alpha = 1f - (float) Math.pow(1f - perTick, dt);
+        float yawErr = MathHelper.wrapDegrees(goalYaw - p.getYaw());
+        float pitchErr = goalPitch - p.getPitch();
+        float maxStep = cfg.maxTurnDegPerTick * dt * (fast ? 3f : 1f);
+        float dy = MathHelper.clamp(yawErr * alpha, -maxStep, maxStep);
+        float dp = MathHelper.clamp(pitchErr * alpha, fast ? -maxStep : -maxStep / 2f, fast ? maxStep : maxStep / 2f);
+        if (Math.abs(dy) < 0.01f && Math.abs(dp) < 0.01f) return;
+        // Apply the already-clamped degree step directly. Mouse sensitivity is nonlinear and must not
+        // be applied to an angle that has already been calculated in degrees.
+        p.setYaw(p.getYaw() + dy);
+        p.setPitch(MathHelper.clamp(p.getPitch() + dp, -90f, 90f));
     }
 }

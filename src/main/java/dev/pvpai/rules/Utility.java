@@ -24,6 +24,10 @@ public final class Utility {
     private float swapHealth;
     private boolean eating, potting, swapDisabled;
     public String state = "idle";
+    private boolean blocksSpecialControllers;
+
+    /** True when a utility sequence owns the selected slot/use/attack actions this tick. */
+    public boolean blocksSpecialControllers() { return blocksSpecialControllers; }
 
     public Utility(boolean smart) { this.smart = smart; }
 
@@ -31,7 +35,7 @@ public final class Utility {
         sp = Shield.IDLE; blockTicks = 0; delay = -1; shieldCooldown = 0; axeTicks = 0; axeWait = 0;
         totemWait = 0; totemFails = 0; eatTicks = 0; eatWait = 0; potTicks = 0; potCooldown = 0;
         swapCheck = 0; swapFails = 0; swapDisabled = false;
-        eating = false; potting = false; state = "idle";
+        eating = false; potting = false; blocksSpecialControllers = false; state = "idle";
     }
 
     /** The kit's heavy weapon slot (axe / mace), or the sword for the other kits. Falls back to sword, then axe. */
@@ -63,6 +67,7 @@ public final class Utility {
     }
 
     public void apply(Action a, Ctx c, ModConfig cfg, boolean combatBusy, boolean inReach) {
+        blocksSpecialControllers = false;
         if (shieldCooldown > 0) shieldCooldown--;
         if (eatWait > 0) eatWait--;
         if (potCooldown > 0) potCooldown--;
@@ -90,6 +95,14 @@ public final class Utility {
                 }
             }
         }
+        // A totem swap owns the hotbar/offhand for this tick sequence. Do not let eating,
+        // spear lunge, or mace logic replace the selected slot before the swap completes.
+        if (totemWanted && c.totemSlot >= 0) {
+            a.attack = false; a.use = false; a.jump = false;
+            blocksSpecialControllers = true;
+            state = s;
+            return;
+        }
 
         // 2) Eating: only when the opponent is not close
         int eatHp = cfg.eatHealth + (cfg.strategy == Strategy.SAFE ? 4 : 0);
@@ -101,6 +114,7 @@ public final class Utility {
             if (done || c.dist < 2.6) {
                 eating = false; eatWait = 80;
             } else {
+                blocksSpecialControllers = true;
                 a.selectSlot = c.foodSlot; a.use = true;
                 a.attack = false; a.jump = false;
                 a.forward = false; a.sprint = false; a.stopSprint = true;
@@ -114,6 +128,7 @@ public final class Utility {
         boolean potKit = cfg.healPots;
         if (!potting && potKit && c.potSlot >= 0 && c.health <= cfg.potHealth && potCooldown == 0) { potting = true; potTicks = 0; sp = Shield.IDLE; }
         if (potting) {
+            blocksSpecialControllers = true;
             potTicks++;
             a.selectSlot = c.potSlot; a.fastAim = true; a.goalPitch = 90f; a.aim = true; a.attack = false;
             if (c.selectedSlot == c.potSlot && c.pitch >= 70f && potTicks >= 2) { a.use = true; potting = false; potCooldown = 14; }
@@ -145,6 +160,7 @@ public final class Utility {
             }
         }
         if (sp == Shield.AXE) {
+            blocksSpecialControllers = true;
             axeTicks++;
             a.selectSlot = c.axeSlot; a.attack = false; a.use = false;
             s = "shield: axe";
@@ -173,6 +189,7 @@ public final class Utility {
         if (cfg.maceShield && cfg.kit == Kit.MACE && c.offhandShield && !eating && !potting
                 && c.dyFeet >= cfg.shieldAboveHeight && Math.hypot(c.dx, c.dz) <= 8.0) {
             a.use = true; a.attack = false;
+            blocksSpecialControllers = true;
             s = "shield up (opponent above)";
         }
 

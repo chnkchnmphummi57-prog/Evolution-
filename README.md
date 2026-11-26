@@ -6,7 +6,7 @@ left-click a module to switch it, right-click it for its settings. `]` toggles t
 Build: push to GitHub and run the workflow, or `gradle build`. Needs Fabric API and YACL (YACL is only used for the server allowlist editor).
 
 ## 0.7.5
-- Uppercut: configurable hit/jump timing, jump + S with W released, and 1–3 configurable movement cycles.
+- Uppercut: hit first, then jump N ticks later (adjustable: also together, or jump first), then S.
 - KB displacement: the hit now goes out on the turn-back tick (before that tick's rotation packet), which is what displaces the knockback.
   Flick angle, flick length and hit delay are adjustable.
 - Mace chain: adjustable wind cooldown, chain after a landed smash, stun slam (axe their shield in the air, then slam), shield up
@@ -14,7 +14,7 @@ Build: push to GitHub and run the workflow, or `gradle build`. Needs Fabric API 
 - Spear lunge: holds a wind charge before every lunge, repeats until the opponent is close, predicts the closing speed so it does
   not overshoot. Real click or STAB packet.
 - Font selector (Roboto, Source Sans, Mono, Unicode, Minecraft). Fonts are bundled, licences in `licenses/`.
-- `sh dev-tests/run.sh` runs 69 scripted checks of the combat logic (controller logic only; not a full Minecraft runtime test).
+- `dev-tests/run.sh` runs 66 scripted checks of the combat logic.
 
 ## 0.7.0
 - Kept: crit (low-charge jump start), crit response, jump reset (react / predict), W/S/shift taps, hit select, circle strafe,
